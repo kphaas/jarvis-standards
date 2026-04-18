@@ -138,4 +138,31 @@ To add or change a flow:
 
 ---
 
+## Decision Log
+
+Architectural decisions that shaped this process, with rationale.
+
+### 2026-04-17 — GitHub Pro not required (DEBT-029 closed)
+
+**Decision:** Do not purchase GitHub Pro for branch protection rulesets on private repos.
+
+**Context:** Branch protection (require PR, block force push, etc.) on GitHub private repos requires Pro plan ($4/mo) or Enterprise. Initially considered purchasing for `jarvis-family`.
+
+**Why deferred:** Ken's Microsoft employment provides free GitHub Copilot Enterprise, which includes Copilot Cloud Agent. The Cloud Agent flow (Issue → bot-created branch → PR → human merge) provides equivalent or better guarantees than ruleset enforcement:
+
+- Commits signed by `copilot-swe-agent[bot]` (Verified badge)
+- Built-in code review via Copilot
+- CodeQL + secret scanning on PRs
+- Session-logged, auditable
+
+**Enforcement strategy (tooling-based):**
+- `familyvault_commit.sh` enforces `git add -A` + new-file confirmation + lint
+- `familyvault_merge_branch.sh` requires explicit confirmation + shows diff
+- `check_sandbox_sync.sh` blocks drift at session start
+- Copilot's own Cloud Agent safeguards cover PR-based work
+
+**Revisit when:** Copilot availability changes, OR a second human contributor is added (requiring enforced review).
+
+---
+
 *Canonical source: github.com/kphaas/jarvis-standards/DEVELOPMENT_PROCESS.md*
