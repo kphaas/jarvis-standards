@@ -21,6 +21,8 @@
 # Returns 0 on success, 1 if ruff not found in either location.
 # Does not exit — caller decides how to handle failure.
 
+# shellcheck disable=SC2034
+# RUFF and RUFF_SOURCE are intentionally set for consumption by sourcing callers
 detect_ruff() {
     if [ -x "@@REPO_PATH@@/.venv/bin/ruff" ]; then
         RUFF="@@REPO_PATH@@/.venv/bin/ruff"
