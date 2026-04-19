@@ -1,7 +1,7 @@
 # JARVIS Development Process
 
 **Canonical source for cross-repo development workflow.**  
-Last reviewed: 2026-04-19 · Review trigger: every 4 sessions or when a flow changes
+Last reviewed: 2026-04-17 · Review trigger: every 4 sessions or when a flow changes
 
 ---
 
@@ -98,9 +98,6 @@ When does a flow fall back to its alternate?
 | Brain Postgres down | Block all deploys; no workaround — restore Brain first |
 | Tailscale mesh down | Block all deploys; no workaround — restore mesh first |
 | Ken unavailable for review | Do not merge anything to main. Draft PRs wait. No autonomous merges. Ever. |
-| Docker Hub outage blocks image pulls | Use locally-cached images; defer `docker compose pull` until Hub returns; planned mitigation: local registry mirror on Unraid |
-| OrbStack / Docker Desktop fails on a Mac | Switch to Colima or Podman on that Mac (both run the same containers; ~1 hour migration) |
-| Unraid Docker fails (stateful services down) | Critical — block all deploys; restore Unraid before continuing. Backups to restore Postgres/NATS state are in `/mnt/user/backups/`. |
 
 ---
 
@@ -144,41 +141,6 @@ To add or change a flow:
 ## Decision Log
 
 Architectural decisions that shaped this process, with rationale.
-
-### 2026-04-19 — Docker adopted as primary deployment pattern (ADR-0001)
-
-**Decision:** All JARVIS services run as Docker containers. Exceptions: Ollama on Brain (native, needs Metal GPU) and Claude Code on Forge (interactive dev tool). See `docs/adr/ADR-0001-adopt-docker-deployment.md` for full rationale.
-
-**Context:** JARVIS has grown to 5+ services across 5+ machines (Alpha, Family, Financial, Medical, Forge). Running native Homebrew services scales badly — drift, isolation gaps, inconsistent upgrade paths, and no clean way to host stateful services on Unraid. The Marvel-Jarvis vision (pervasive, always-available) needs reproducible + isolated deployments.
-
-**Topology that follows:**
-
-* Unraid = stateful services (Postgres, NATS JetStream, Redis, Obsidian vault share, observability, backups) — the "pet"
-* Macs = stateless application services — "cattle"
-* Plain Docker per machine + Portainer on Unraid for unified UI
-* Cross-machine addressing via Tailscale hostnames (never hardcoded IPs — enforced per Cross-Repo Consistency #6)
-
-**Sovereignty First compliance:** Docker Engine itself is Tier 1 (open-source, no phone-home). Tier 3 dependencies introduced:
-
-* OrbStack / Docker Desktop → Colima/Podman fallback available
-* Docker Hub base images → planned local registry mirror on Unraid for Tier 1 hardening
-* Portainer → native `docker` CLI is always the fallback
-
-Full fallback table in ADR-0001.
-
-**New standards produced:**
-
-* `docs/adr/ADR-0001-adopt-docker-deployment.md` — the decision
-* `docs/DEPLOYMENT.md` — conventions (image pinning, node addressing, secrets pattern, compose structure, forbidden patterns)
-* `docs/adr/TEMPLATE.md` + `docs/adr/README.md` — ADR pattern for future decisions
-
-**Revisit when:**
-
-* Docker Desktop/OrbStack performance materially regresses measurable latency (>15% on LLM calls from Brain)
-* A Docker Hub supply-chain incident affects pinned images
-* JARVIS scales to 10+ services across 5+ nodes (reconsider K3s or Nomad)
-
----
 
 ### 2026-04-17 — GitHub Pro not required (DEBT-029 closed)
 
