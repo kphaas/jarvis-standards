@@ -19,6 +19,10 @@
 
 [[ -z "$JARVIS_NODE" ]] && return 0
 
+# Bash safety: this file uses zsh-specific features (setopt, %F, (@s:...))
+# Exit early if sourced from bash (e.g., a bash script running under .zshrc)
+[[ -n "$BASH_VERSION" ]] && return 0
+
 case "$JARVIS_NODE" in
   air)      _jprompt_emoji="💻"; _jprompt_label="AIR";      _jprompt_color="51"  ;;
   brain)    _jprompt_emoji="🟢"; _jprompt_label="BRAIN";    _jprompt_color="46"  ;;
