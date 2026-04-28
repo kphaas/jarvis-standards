@@ -5,7 +5,7 @@
 # Sourced from each node's ~/.zshrc. Node identity from $JARVIS_NODE.
 #
 # Usage in ~/.zshrc:
-#   export JARVIS_NODE=sandbox          # air | brain | gateway | endpoint | sandbox
+#   export JARVIS_NODE=sandbox          # air | brain | gateway | endpoint | sandbox | print
 #   source ~/jarvis-standards/shell/prompt.zsh
 #
 # Design:
@@ -16,26 +16,22 @@
 #   - Git branch shown only in repos; trailing * = dirty tree
 #   - $ turns red on last non-zero exit (failure cue)
 #   - (venv) prefix when $VIRTUAL_ENV set
-
 [[ -z "$JARVIS_NODE" ]] && return 0
-
 # Bash safety: this file uses zsh-specific features (setopt, %F, (@s:...))
 # Exit early if sourced from bash (e.g., a bash script running under .zshrc)
 [[ -n "$BASH_VERSION" ]] && return 0
-
 case "$JARVIS_NODE" in
   air)      _jprompt_emoji="💻"; _jprompt_label="AIR";      _jprompt_color="51"  ;;
-  brain)    _jprompt_emoji="🟢"; _jprompt_label="BRAIN";    _jprompt_color="46"  ;;
-  gateway)  _jprompt_emoji="🟡"; _jprompt_label="GATEWAY";  _jprompt_color="220" ;;
-  endpoint) _jprompt_emoji="🔵"; _jprompt_label="ENDPOINT"; _jprompt_color="33"  ;;
-  sandbox)  _jprompt_emoji="🔴"; _jprompt_label="SANDBOX";  _jprompt_color="196" ;;
+  brain)    _jprompt_emoji="🧠"; _jprompt_label="BRAIN";    _jprompt_color="46"  ;;
+  gateway)  _jprompt_emoji="🚧"; _jprompt_label="GATEWAY";  _jprompt_color="220" ;;
+  endpoint) _jprompt_emoji="🖥️ "; _jprompt_label="ENDPOINT"; _jprompt_color="33"  ;;
+  sandbox)  _jprompt_emoji="🧪"; _jprompt_label="SANDBOX";  _jprompt_color="196" ;;
+  print)    _jprompt_emoji="🖨️ "; _jprompt_label="PRINT";    _jprompt_color="87"  ;;
   *)
     _jprompt_emoji="❓"; _jprompt_label="${JARVIS_NODE:u}"; _jprompt_color="245"
     ;;
 esac
-
 setopt PROMPT_SUBST
-
 _jprompt_git_branch() {
   local branch
   branch=$(git symbolic-ref --short HEAD 2>/dev/null) || return
@@ -43,7 +39,6 @@ _jprompt_git_branch() {
   git diff-index --quiet HEAD -- 2>/dev/null || dirty="*"
   print -n " (%F{245}${branch}${dirty}%f)"
 }
-
 _jprompt_short_path() {
   local p="${PWD/#$HOME/~}"
   local -a segs
@@ -54,15 +49,11 @@ _jprompt_short_path() {
     print -n "$p"
   fi
 }
-
 _jprompt_venv() {
   [[ -n "$VIRTUAL_ENV" ]] && print -n "%F{245}($(basename $VIRTUAL_ENV))%f "
 }
-
 _jprompt_char() {
   print -n '%(?.%f$.%F{196}$%f)'
 }
-
 PROMPT='$(_jprompt_venv)%F{'"${_jprompt_color}"'}'"${_jprompt_emoji}"' '"${_jprompt_label}"'%f %F{'"${_jprompt_color}"'}'"${JARVIS_NODE}@${JARVIS_NODE}"'%f %F{250}$(_jprompt_short_path)%f$(_jprompt_git_branch) $(_jprompt_char) '
-
 export JARVIS_PROMPT_LOADED=1
