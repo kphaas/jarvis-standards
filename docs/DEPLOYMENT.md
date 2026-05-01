@@ -251,7 +251,7 @@ git log --grep="^AI-Agent:" --invert-grep --format="%h %ai %s"
 |---|---|---|
 | `jarvis-alpha` | F + B | F shipped (TD-88, commit `35d34fc`); B pending Session #11 |
 | `jarvis-forge` | F + B | F shipped; B pending Session #12 |
-| `jarvis-family` | B | Shipped via DEBT-027 (Session #08–09); pilot for new commit-script template Session #10 |
+| `jarvis-family` | B | **SHIPPED Session #10** — PR #12 squash `0d50e53`; first repo adopting `commit_core` template; pilot caught 3 latent bugs (jarvis-standards PRs #6, #7, #8) |
 | `jarvis-council` | B | Pending — adopt B from day one when MS1 begins |
 | `jarvis-print-copilot` | B | Pending — adopt B from day one when MS1 begins |
 | `jarvis-financial` | P | GitHub PR + `gh` CLI active; branch protection rules pending Session #13 |
@@ -388,6 +388,32 @@ If the new script breaks something post-merge:
 5. **Fix in template, not in repo** — update `commit_core.template.sh` and re-propagate
 
 Do NOT patch the per-repo script directly. It's generated; manual edits will be overwritten on next propagation.
+
+### 7.4 Lessons from family pilot (Session #10)
+
+`jarvis-family` was the first repo to adopt the new `commit_core` template (PR #12 squash `0d50e53`). The pilot was deliberately careful: read the existing hand-written script, compare to generated output, smoke test before commit, verify trailer parsing, etc.
+
+**The pilot caught three real bugs in jarvis-standards itself:**
+
+| PR | Bug | Why it matters |
+|---|---|---|
+| `#6` (squash `2a936c9`) | Engine couldn't iterate empty `extras[@]` array under `set -u` | Would have broken every consumer using the original 6-field schema |
+| `#7` (squash `8798f63`) | `check_sync.template.sh` hostname guard stale (Apr 28 Sandbox migration) | Would have silently regressed Sandbox commits on family |
+| `#8` (squash `179c6ef`) | Engine's blank-line-based meta-block stripping destroyed PR #7's docstring | Documentation contract was load-bearing whitespace; replaced with explicit count-based stripping |
+
+Each bug looked fine in template review and would have shipped silently if family had adopted via a quick "run the engine, commit the output" flow. Slowing down for verification is what the pilot was for.
+
+**Recommended pattern for future adoptions** (alpha Session #11, forge Session #12, council/print-copilot when scaffolded):
+
+1. Read the existing hand-written commit script line-by-line. Catalog every behavior.
+2. Diff vs the would-be-generated output. Flag every behavioral gap.
+3. If gaps are real (not cosmetic): fix the template in jarvis-standards FIRST, merge, re-propagate. Do not patch the consumer.
+4. Smoke test the generated script (invoke without args; verify USAGE message + exit 1).
+5. Then stage + commit + push the adoption PR.
+
+This is slower than "trust and ship" but cheaper than "ship and roll back across multiple repos."
+
+**Anti-pattern to avoid:** running `propagate_scripts.sh --initial` against multiple repos in one go. The flag overrides the GENERATED-header safety guard for ALL targets, not just the one you're adopting. During Session #10 family pilot, this caused alpha + forge to receive partial scaffolding (`scripts/_lib/` + `scripts/check_sync.sh`) that had to be manually cleaned up. Recommendation: add a `--target <repo>` flag to the engine to scope `--initial` to one repo at a time. Filed as DEBT-054 (non-blocking; manual cleanup is fast).
 
 ---
 
