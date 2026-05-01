@@ -194,7 +194,7 @@ EOF
     sed_args+=(-e "s|@@MAIN_BRANCH@@|$main_branch|g")
 
     local kv key val
-    for kv in "${extras[@]}"; do
+    for kv in "${extras[@]+"${extras[@]}"}"; do
         kv="$(trim "$kv")"
         if [ -z "$kv" ]; then
             continue
