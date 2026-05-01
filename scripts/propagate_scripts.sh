@@ -6,13 +6,22 @@
 # to each consumer repo with a GENERATED header.
 #
 # Usage:
-#   bash propagate_scripts.sh [--dry-run] [--initial] [--help]
+#   bash propagate_scripts.sh [--dry-run] [--initial] [--check] [--help]
 #
 # Safety:
 #   - Refuses to run if jarvis-standards has uncommitted changes
 #   - Default mode: overwrites only files with the GENERATED header
 #   - --initial: one-time overwrite of hand-written files (for first rollout)
 #   - --dry-run: show plan, write nothing
+#   - --check: report drift (target file out of sync with template), no writes
+#
+# Schema (propagate.config):
+#   template|target_repo|target_subpath|REPO_NAME|REPO_PATH|MAIN_BRANCH[|KEY=VALUE...]
+#
+#   Fields 1-6 are required. Fields 7+ are optional KEY=VALUE pairs that
+#   become @@KEY@@ substitution variables in the template.
+#
+# Backward compatibility: rows without KEY=VALUE extras work exactly as before.
 #
 # Exits non-zero on fatal errors. Missing consumer repos are warnings, not errors.
 
@@ -33,6 +42,7 @@ C_RESET=$'\033[0m'
 # ---------- Flags ----------
 DRY_RUN=false
 INITIAL=false
+CHECK=false
 
 print_help() {
     cat <<EOF
@@ -42,10 +52,18 @@ Usage:
   propagate_scripts.sh                Run propagation (safe mode)
   propagate_scripts.sh --dry-run      Show plan, write nothing
   propagate_scripts.sh --initial      One-time overwrite of hand-written files
+  propagate_scripts.sh --check        Report drift, no writes (CI / quarterly audit)
   propagate_scripts.sh --help         This message
 
 Safe mode (default): only overwrites files with a GENERATED header.
 Initial mode: overwrites any existing file — use once per consumer repo on first rollout.
+Check mode: reports drift between expected and actual generated files.
+
+Schema (propagate.config):
+  template|target_repo|target_subpath|REPO_NAME|REPO_PATH|MAIN_BRANCH[|KEY=VALUE...]
+
+Fields 1-6 are required. Fields 7+ are optional KEY=VALUE pairs that
+become @@KEY@@ substitution variables in the template.
 
 Config: $CONFIG_FILE
 Templates: $TEMPLATES_DIR
@@ -56,6 +74,7 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --initial) INITIAL=true ;;
+        --check) CHECK=true ;;
         --help|-h) print_help; exit 0 ;;
         *) echo "${C_RED}Unknown flag: $arg${C_RESET}" >&2; print_help; exit 1 ;;
     esac
@@ -87,6 +106,8 @@ echo "  Source commit: $SOURCE_SHA_SHORT"
 echo "  Timestamp:     $GEN_TIMESTAMP"
 if [ "$DRY_RUN" = "true" ]; then
     echo "  Mode:          ${C_YELLOW}DRY-RUN${C_RESET} (no files will be written)"
+elif [ "$CHECK" = "true" ]; then
+    echo "  Mode:          ${C_YELLOW}CHECK${C_RESET} (report drift, no writes)"
 elif [ "$INITIAL" = "true" ]; then
     echo "  Mode:          ${C_YELLOW}INITIAL${C_RESET} (will overwrite hand-written files)"
 else
@@ -99,7 +120,21 @@ WROTE=0
 SKIPPED_NO_REPO=0
 SKIPPED_HANDWRITTEN=0
 DRY_RUN_PLANNED=0
+DRIFT_DETECTED=0
 ERRORS=0
+
+# ---------- Helpers ----------
+
+# Trim leading and trailing whitespace from a string.
+# Bash 3.2 compatible.
+trim() {
+    local s="$1"
+    # Leading whitespace
+    s="${s#"${s%%[![:space:]]*}"}"
+    # Trailing whitespace
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
 
 # ---------- Core function ----------
 propagate_one() {
@@ -109,6 +144,9 @@ propagate_one() {
     local repo_name="$4"
     local repo_path="$5"
     local main_branch="$6"
+    shift 6
+    # Remaining args are KEY=VALUE extras
+    local extras=("$@")
 
     local template_file="$TEMPLATES_DIR/$template_name"
     local target_root="$HOME/$target_repo"
@@ -127,7 +165,7 @@ propagate_one() {
     fi
 
     # Safety check: if target exists without GENERATED header, require --initial
-    if [ -f "$target_file" ]; then
+    if [ -f "$target_file" ] && [ "$CHECK" != "true" ]; then
         if ! head -10 "$target_file" | grep -q "^# GENERATED FROM jarvis-standards"; then
             if [ "$INITIAL" != "true" ]; then
                 echo "${C_YELLOW}SKIP${C_RESET}   $target_repo/$target_subpath (hand-written; use --initial to overwrite)"
@@ -148,6 +186,34 @@ propagate_one() {
 EOF
 )
 
+    # Build sed expressions for substitution.
+    # Required vars first, then extras.
+    local sed_args=()
+    sed_args+=(-e "s|@@REPO_NAME@@|$repo_name|g")
+    sed_args+=(-e "s|@@REPO_PATH@@|$repo_path|g")
+    sed_args+=(-e "s|@@MAIN_BRANCH@@|$main_branch|g")
+
+    local kv key val
+    for kv in "${extras[@]}"; do
+        kv="$(trim "$kv")"
+        if [ -z "$kv" ]; then
+            continue
+        fi
+        case "$kv" in
+            *=*) ;;
+            *)
+                echo "${C_YELLOW}WARN${C_RESET}   $target_repo: ignoring malformed extra (no '='): '$kv'" >&2
+                continue
+                ;;
+        esac
+        # Split on first '='
+        key="${kv%%=*}"
+        val="${kv#*=}"
+        key="$(trim "$key")"
+        # Don't trim val — it may legitimately contain trailing whitespace if quoted
+        sed_args+=(-e "s|@@${key}@@|${val}|g")
+    done
+
     # Process template body:
     #   1. Strip shebang line (we provide our own in header)
     #   2. Strip # TEMPLATE FILE multi-line header block (from marker to first blank line)
@@ -159,10 +225,7 @@ EOF
         in_tmpl_hdr && /^$/ { in_tmpl_hdr = 0; next }
         in_tmpl_hdr { next }
         { print }
-    ' "$template_file" | sed \
-        -e "s|@@REPO_NAME@@|$repo_name|g" \
-        -e "s|@@REPO_PATH@@|$repo_path|g" \
-        -e "s|@@MAIN_BRANCH@@|$main_branch|g")
+    ' "$template_file" | sed "${sed_args[@]}")
 
     local full_content="$gen_header
 $body"
@@ -170,6 +233,28 @@ $body"
     if [ "$DRY_RUN" = "true" ]; then
         echo "${C_CYAN}PLAN${C_RESET}   $target_repo/$target_subpath  (from $template_name)"
         DRY_RUN_PLANNED=$((DRY_RUN_PLANNED + 1))
+        return 0
+    fi
+
+    if [ "$CHECK" = "true" ]; then
+        if [ ! -f "$target_file" ]; then
+            echo "${C_YELLOW}DRIFT${C_RESET}  $target_repo/$target_subpath (target missing)"
+            DRIFT_DETECTED=$((DRIFT_DETECTED + 1))
+            return 0
+        fi
+        # Compare expected content (computed) vs actual file
+        # Note: timestamps and source SHA in header will differ on every run,
+        # so compare body only by stripping the GENERATED header from both.
+        local actual_body
+        actual_body="$(awk 'NR > 5' "$target_file" || true)"
+        local expected_body
+        expected_body="$(printf '%s\n' "$body")"
+        if [ "$actual_body" = "$expected_body" ]; then
+            echo "${C_GREEN}OK${C_RESET}     $target_repo/$target_subpath"
+        else
+            echo "${C_YELLOW}DRIFT${C_RESET}  $target_repo/$target_subpath (body differs from template)"
+            DRIFT_DETECTED=$((DRIFT_DETECTED + 1))
+        fi
         return 0
     fi
 
@@ -181,37 +266,65 @@ $body"
 }
 
 # ---------- Main loop ----------
-while IFS='|' read -r template target_repo target_subpath repo_name repo_path main_branch; do
-    # Skip comments
-    case "$template" in
-        \#*) continue ;;
-        "") continue ;;
+# Read whole line; split on '|' into positional array; validate min 6 fields;
+# pass first 6 as named args + rest as extras.
+while IFS= read -r line || [ -n "$line" ]; do
+    # Skip comments and blanks
+    case "$line" in
+        \#*|"") continue ;;
     esac
 
-    # Trim whitespace (simple — matches bash 3.2)
-    template="${template## }"; template="${template%% }"
-    target_repo="${target_repo## }"; target_repo="${target_repo%% }"
-    target_subpath="${target_subpath## }"; target_subpath="${target_subpath%% }"
-    repo_name="${repo_name## }"; repo_name="${repo_name%% }"
-    repo_path="${repo_path## }"; repo_path="${repo_path%% }"
-    main_branch="${main_branch## }"; main_branch="${main_branch%% }"
+    # Split on '|' into array. Bash 3.2 compatible via read -a + IFS.
+    OLD_IFS="$IFS"
+    IFS='|'
+    read -r -a parts <<< "$line"
+    IFS="$OLD_IFS"
 
-    propagate_one "$template" "$target_repo" "$target_subpath" "$repo_name" "$repo_path" "$main_branch" || true
+    if [ "${#parts[@]}" -lt 6 ]; then
+        echo "${C_RED}ERROR: row needs at least 6 fields, got ${#parts[@]}: $line${C_RESET}" >&2
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
+
+    # Trim whitespace from required fields (matches existing behavior)
+    template="$(trim "${parts[0]}")"
+    target_repo="$(trim "${parts[1]}")"
+    target_subpath="$(trim "${parts[2]}")"
+    repo_name="$(trim "${parts[3]}")"
+    repo_path="$(trim "${parts[4]}")"
+    main_branch="$(trim "${parts[5]}")"
+
+    # Collect extras (parts[6] and beyond) — trimmed inside propagate_one
+    extras=()
+    if [ "${#parts[@]}" -gt 6 ]; then
+        local_i=6
+        while [ "$local_i" -lt "${#parts[@]}" ]; do
+            extras+=("${parts[$local_i]}")
+            local_i=$((local_i + 1))
+        done
+    fi
+
+    propagate_one "$template" "$target_repo" "$target_subpath" "$repo_name" "$repo_path" "$main_branch" "${extras[@]+"${extras[@]}"}" || true
 done < "$CONFIG_FILE"
 
 # ---------- Summary ----------
 echo
 echo "${C_CYAN}Summary${C_RESET}"
 if [ "$DRY_RUN" = "true" ]; then
-    echo "  Planned:            $DRY_RUN_PLANNED"
+    echo "  Planned writes:    $DRY_RUN_PLANNED"
+elif [ "$CHECK" = "true" ]; then
+    echo "  Drift detected:    $DRIFT_DETECTED"
 else
-    echo "  Written:            $WROTE"
+    echo "  Wrote:             $WROTE"
 fi
-echo "  Skipped (no repo):  $SKIPPED_NO_REPO"
-echo "  Skipped (hand-written, need --initial): $SKIPPED_HANDWRITTEN"
-echo "  Errors:             $ERRORS"
+echo "  Skipped (no repo): $SKIPPED_NO_REPO"
+echo "  Skipped (handwrt): $SKIPPED_HANDWRITTEN"
+echo "  Errors:            $ERRORS"
 
 if [ "$ERRORS" -gt 0 ]; then
     exit 1
+fi
+if [ "$CHECK" = "true" ] && [ "$DRIFT_DETECTED" -gt 0 ]; then
+    exit 2
 fi
 exit 0
