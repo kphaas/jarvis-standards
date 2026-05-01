@@ -126,7 +126,11 @@ step 1 "Pre-flight"
 for envfile in "$HOME/jarvis/infra/env/.node_addresses" "$HOME/jarvis/.secrets" "$HOME/.secrets"; do
     if [ -f "$envfile" ]; then
         # shellcheck disable=SC1090
-        . "$envfile" 2>/dev/null || warn "failed to source $envfile"
+        # Subshell isolation: prevents source-side set -u/set -e/exit/syntax errors
+        # in env files (e.g. ~/.secrets) from killing the parent script. The
+        # source's exported vars are lost outside the subshell — that is intended.
+        # Downstream commands that need env vars source the files themselves.
+        ( . "$envfile" 2>/dev/null ) || warn "failed to source $envfile"
     fi
 done
 
