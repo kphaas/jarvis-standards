@@ -239,9 +239,12 @@ if [ "$HAS_UI_BUILD" = "true" ] && [ -d "$REPO_PATH/ui" ]; then
         fi
         cd "$REPO_PATH" || die "Cannot return to repo path"
     else
-        # Non-Air: build if tooling exists, skip with warn if not.
-        if ! command -v npm >/dev/null 2>&1; then
-            warn "npm not found on $MACHINE — skipping UI build (canonical build runs on Air after merge)"
+        # Non-Air: build if project deps are installed, skip with warn if not.
+        # Tests for vite binary specifically (not just npm presence) because
+        # Sandbox/etc. typically have npm system-wide but never run "npm install"
+        # in family/ui (UI deploy origin is Air, not them).
+        if [ ! -x "$REPO_PATH/ui/node_modules/.bin/vite" ]; then
+            warn "vite not installed in $REPO_PATH/ui — skipping UI build (canonical build runs on Air after merge)"
         else
             cd "$REPO_PATH/ui" || die "Cannot cd to ui/"
             if npm run build >/dev/null 2>&1; then
