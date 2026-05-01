@@ -5,20 +5,13 @@
 #
 # check_sync.sh — pre-commit drift validator for B-trait JARVIS repos.
 #
-# Invoked by commit_core's Step 1 pre-flight on Sandbox. Verifies that
-# the writer's local repo state is clean and synced with origin/@@MAIN_BRANCH@@
-# before any commit lands. Read-only; <5s.
+# Invoked by commit_core's Step 1 pre-flight on any commit-eligible machine
+# (Air, Sandbox, etc.). Verifies that the writer's local repo state is clean
+# and synced with origin/@@MAIN_BRANCH@@ before any commit lands. Read-only; <5s.
 #
-# Why Sandbox-specific (current scope):
-#   Of the 5 JARVIS machines (Air, Brain, Gateway, Endpoint, Sandbox),
-#   only Air and Sandbox commit. Air commits are gated by Cursor and a
-#   human; no automated drift check needed. Brain/Gateway/Endpoint pull
-#   commits but never make them. Sandbox is the only machine where a
-#   drift check before automated commit is structurally meaningful.
-#
-#   If a future maintenance workflow needs Brain/Gateway/Endpoint to
-#   commit, broaden the hostname guard via ADR amendment — do not
-#   quietly expand it here.
+# Single responsibility: drift detection. Does NOT enforce which machine is
+# allowed to commit — that concern lives in commit_core's HAS_BRANCH_SAFETY
+# trait, where machine identity and agent context are properly handled.
 #
 # Modes:
 #   default       Session-start mode: tree must be clean.
@@ -26,7 +19,6 @@
 #                 legitimately has a dirty tree at this point).
 #
 # Guarantees:
-#   - Verifies hostname is Sandbox (jarvis-sandbox or legacy jarvis-forge)
 #   - Verifies repo identity (right repo at @@REPO_PATH@@, right origin)
 #   - Verifies HEAD vs origin/@@MAIN_BRANCH@@ (no drift)
 #   - Verifies network reachability to origin
@@ -36,8 +28,10 @@
 #
 # Compatible with bash 3.2 (macOS default) and bash 5.x.
 #
-# Implements ADR-0005 §6.2 (B-trait branch-safety) for Sandbox writers.
-# Supersedes: DEBT-026 (Sandbox-specific remediation).
+# Implements ADR-0005 §6.2 (B-trait branch-safety) drift validation layer.
+# Supersedes: DEBT-026 (Sandbox-specific drift remediation; this script
+# generalizes that into a host-agnostic drift validator for the multi-writer
+# coordination model).
 
 set -euo pipefail
 
@@ -97,18 +91,6 @@ fail_banner() {
     printf '%s%s%s\n' "$C_RED" "$BAR" "$C_RESET" >&2
     exit 1
 }
-
-# ---------- 1. Hostname guard (Sandbox only) ----------
-HOSTNAME_RAW="$(hostname)"
-case "$HOSTNAME_RAW" in
-    *jarvis-sandbox*|*jarvis-forge*) ;;
-    *)
-        fail_banner \
-            "not running on Sandbox (hostname: ${HOSTNAME_RAW})" \
-            "This script must only run on Sandbox (hostname contains 'jarvis-sandbox' or 'jarvis-forge')." \
-            "SSH to Sandbox and run from there: ssh jarvissand@100.124.172.14"
-        ;;
-esac
 
 # ---------- 2. Repo guard (must be inside @@REPO_NAME@@) ----------
 if ! REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
