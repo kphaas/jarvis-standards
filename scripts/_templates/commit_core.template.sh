@@ -212,17 +212,47 @@ fi
 
 echo
 
-# ---------- Step 4: UI build (optional) ----------
+# ---------- Step 4: UI build (optional, machine-aware) ----------
+# Policy:
+#   - Air ALWAYS builds. Air is the canonical UI deploy origin
+#     (builds dist/, fans out to runtime nodes via auto-scp).
+#     If npm/vite is missing on Air, that's a hard failure — it
+#     means deploys would silently ship stale UI.
+#   - Other machines (Sandbox, Brain, Gateway, Endpoint) build IF
+#     tooling is present, skip with warn if not. Their commits go
+#     through PR + merge to Air, where the canonical build runs.
+#   - Repos without HAS_UI_BUILD or without a ui/ directory skip
+#     this step entirely.
 if [ "$HAS_UI_BUILD" = "true" ] && [ -d "$REPO_PATH/ui" ]; then
     step 4 "Build UI"
-    cd "$REPO_PATH/ui" || die "Cannot cd to ui/"
-    if npm run build >/dev/null 2>&1; then
-        ok "UI build: succeeded"
+    if [ "$MACHINE" = "air" ]; then
+        # Air: must build. Hard failure if tooling missing.
+        if ! command -v npm >/dev/null 2>&1; then
+            die "npm not found on Air — UI build is required on the deploy-origin machine"
+        fi
+        cd "$REPO_PATH/ui" || die "Cannot cd to ui/"
+        if npm run build >/dev/null 2>&1; then
+            ok "UI build: succeeded"
+        else
+            echo "  ${C_RED}UI build failed — full output:${C_RESET}"
+            npm run build || die "UI build failed"
+        fi
+        cd "$REPO_PATH" || die "Cannot return to repo path"
     else
-        echo "  ${C_RED}UI build failed — full output:${C_RESET}"
-        npm run build || die "UI build failed"
+        # Non-Air: build if tooling exists, skip with warn if not.
+        if ! command -v npm >/dev/null 2>&1; then
+            warn "npm not found on $MACHINE — skipping UI build (canonical build runs on Air after merge)"
+        else
+            cd "$REPO_PATH/ui" || die "Cannot cd to ui/"
+            if npm run build >/dev/null 2>&1; then
+                ok "UI build: succeeded"
+            else
+                echo "  ${C_RED}UI build failed — full output:${C_RESET}"
+                npm run build || die "UI build failed"
+            fi
+            cd "$REPO_PATH" || die "Cannot return to repo path"
+        fi
     fi
-    cd "$REPO_PATH" || die "Cannot return to repo path"
     echo
 fi
 
