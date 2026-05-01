@@ -216,14 +216,29 @@ EOF
 
     # Process template body:
     #   1. Strip shebang line (we provide our own in header)
-    #   2. Strip # TEMPLATE FILE multi-line header block (from marker to first blank line)
+    #   2. Strip the TEMPLATE FILE meta-block (exactly 4 lines, see contract below)
     #   3. Apply placeholder substitutions
+    #
+    # TEMPLATE FILE meta-block contract (must be present at top of every template):
+    #   #!/usr/bin/env bash
+    #   # TEMPLATE FILE — <description>           <- marker line (line 2)
+    #   # Source of truth: jarvis-standards/...   <- meta line 1
+    #   # Propagated to:   <consumer path>        <- meta line 2
+    #   #                                          <- meta line 3 (empty comment separator)
+    #   # <docstring starts here, preserved>
+    #
+    # The engine strips 5 lines total: shebang (line 1) + marker (line 2) +
+    # 3 meta lines tracked by counter (Source of truth, Propagated to, separator).
+    # Documented in scripts/README.md.
     local body
     body=$(awk '
         NR == 1 && /^#!/ { next }
-        /^# TEMPLATE FILE / { in_tmpl_hdr = 1; next }
-        in_tmpl_hdr && /^$/ { in_tmpl_hdr = 0; next }
-        in_tmpl_hdr { next }
+        /^# TEMPLATE FILE / { in_meta = 1; meta_count = 0; next }
+        in_meta {
+            meta_count++
+            if (meta_count >= 3) { in_meta = 0 }
+            next
+        }
         { print }
     ' "$template_file" | sed "${sed_args[@]}")
 
