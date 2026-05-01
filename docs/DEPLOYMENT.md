@@ -410,34 +410,66 @@ Templates use `@@VAR@@` placeholder syntax. `propagate_scripts.sh` substitutes v
 
 ### 8.2 `propagate.config` schema
 
-Pipe-delimited mapping. One line per (template, target repo, trait) combination:
+Pipe-delimited mapping. Fields 1–6 are required and positional. Fields 7+ are optional `KEY=VALUE` pairs (no `@@` wrapping in the config file — just the variable name) that become `@@KEY@@` substitutions in the template body.
 
 ```
-template|target_repo|target_path|@@VAR1@@=val1|@@VAR2@@=val2|...
+template|target_repo|target_subpath|REPO_NAME|REPO_PATH|MAIN_BRANCH[|KEY=VALUE...]
 ```
 
-Example entries:
+Required fields:
+
+- `template` — filename in `_templates/`
+- `target_repo` — directory name under `$HOME`
+- `target_subpath` — relative path within the consumer repo
+- `REPO_NAME` — repo display name (substituted as `@@REPO_NAME@@`)
+- `REPO_PATH` — absolute path; **must use `$HOME/...` not `/Users/...`** (consumer repos run on multiple nodes with different usernames)
+- `MAIN_BRANCH` — typically `main`
+
+Example rows:
 
 ```
-commit_core.template.sh|jarvis-family|scripts/familyvault_commit.sh|@@REPO_NAME@@=jarvis-family|@@COMMIT_SCRIPT_NAME@@=familyvault_commit.sh|@@HAS_FANOUT@@=false|@@HAS_BRANCH_SAFETY@@=true|@@MAIN_BRANCH@@=main
-commit_core.template.sh|jarvis-alpha|scripts/jarvisalpha_commit.sh|@@REPO_NAME@@=jarvis-alpha|@@COMMIT_SCRIPT_NAME@@=jarvisalpha_commit.sh|@@HAS_FANOUT@@=true|@@HAS_BRANCH_SAFETY@@=true|@@FANOUT_NODES@@=brain,gateway,endpoint,sandbox|@@MAIN_BRANCH@@=main
+check_sync.template.sh|jarvis-family|scripts/check_sync.sh|jarvis-family|$HOME/jarvis-family|main
+
+commit_core.template.sh|jarvis-family|scripts/familyvault_commit.sh|jarvis-family|$HOME/jarvis-family|main|COMMIT_SCRIPT_NAME=familyvault_commit.sh|HAS_FANOUT=false|HAS_BRANCH_SAFETY=true|HAS_UI_BUILD=true|HAS_SMOKE_CHECK=true|HAS_AUTO_BRANCH=true|FANOUT_NODES=|SMOKE_CHECK_CMD=scripts/smoke_health.sh|MERGE_HELPER_SCRIPT_NAME=familyvault_merge_branch.sh
 ```
+
+The first row uses no extras (existing 6-field rows continue to work — backward compat). The second row sets all trait switches for the family pilot. See §8.3 for the full switch catalog.
 
 ### 8.3 Trait switches in `commit_core.template.sh`
 
-The template uses bash conditionals on trait values:
+The template uses bash conditionals on trait values, allowing one source of truth across F-trait, B-trait, and F+B-trait repos.
+
+| Switch | Type | Behavior |
+|---|---|---|
+| `HAS_FANOUT` | F-trait | SSH-fan-out to `FANOUT_NODES` after push (halt-on-fail per TD-88) |
+| `HAS_BRANCH_SAFETY` | B-trait | Agent on `main` → hard refusal; humans on `main` from non-Air → warn (or auto-branch if `HAS_AUTO_BRANCH=true`) |
+| `HAS_UI_BUILD` | repo-specific | Run `npm run build` in `ui/` before commit |
+| `HAS_SMOKE_CHECK` | repo-specific | Run `SMOKE_CHECK_CMD` (e.g. `scripts/smoke_health.sh`) as pre-commit health check |
+| `HAS_AUTO_BRANCH` | repo-specific | On `main` from non-Air machine, auto-create `feature/<date>-<slug>` branch + return to `main` after push (preserves family's pre-ADR-0005 workflow UX) |
+
+Companion vars (used only when their corresponding switch is `true`):
+
+- `FANOUT_NODES` — space-separated node list (e.g. `"brain gateway endpoint sandbox"`)
+- `SMOKE_CHECK_CMD` — path to smoke check script, relative to repo root
+- `MERGE_HELPER_SCRIPT_NAME` — name of merge helper script (printed in instructions after auto-branch)
+- `COMMIT_SCRIPT_NAME` — name of the generated commit script itself (used in self-references)
+
+Example template logic:
 
 ```bash
-if [[ "@@HAS_FANOUT@@" == "true" ]]; then
-  # Run fan-out logic — SSH to @@FANOUT_NODES@@
+if [[ "$HAS_FANOUT" == "true" ]]; then
+  # Run fan-out logic — SSH to FANOUT_NODES with halt-on-fail
 fi
 
-if [[ "@@HAS_BRANCH_SAFETY@@" == "true" ]]; then
-  # Run host detection — block direct-to-main from non-Air machines for agents
+if [[ "$HAS_BRANCH_SAFETY" == "true" ]] && [[ "$IS_AGENT" == "true" ]] && [[ "$CURRENT_BRANCH" == "$MAIN_BRANCH" ]]; then
+  die "Agent cannot commit directly to main — use claude-code/<purpose>/<topic> branch"
 fi
 ```
 
-This keeps a single source of truth across F-trait, B-trait, and F+B-trait repos.
+Adding a new trait switch requires:
+1. Add the bash logic in the template
+2. Document it in this table
+3. Set the value in every repo's row in `propagate.config` (engine fails loudly if a repo's row doesn't supply a referenced var — keeps drift visible)
 
 ### 8.4 Generation procedure
 
@@ -445,9 +477,12 @@ This keeps a single source of truth across F-trait, B-trait, and F+B-trait repos
 cd ~/jarvis-standards
 git checkout main && git pull
 bash scripts/propagate_scripts.sh --dry-run        # see what would change
-bash scripts/propagate_scripts.sh                  # actually generate
-# Result: each consumer repo gets an updated commit script with the GENERATED header
+bash scripts/propagate_scripts.sh                  # generate (default mode — only overwrites GENERATED files)
+bash scripts/propagate_scripts.sh --initial        # one-time first-rollout (overwrites hand-written files)
+# Result: each consumer repo gets an updated script with the GENERATED header
 ```
+
+Use `--initial` exactly once per consumer repo when first adopting a template (replaces a hand-written script). After initial rollout, default mode is sufficient — the engine refuses to overwrite hand-edited files unless `--initial` is re-passed (drift safety).
 
 ### 8.5 Drift detection
 
