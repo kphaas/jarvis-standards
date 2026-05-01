@@ -1,103 +1,497 @@
-# DEPLOYMENT Standard
+# DEPLOYMENT — operational runbook
 
-How JARVIS services are packaged, deployed, and run.
+How JARVIS services are packaged, deployed, and run; how repositories enforce the multi-writer coordination model.
 
-**Last reviewed:** 2026-04-19 · **Review trigger:** every 4 sessions or when topology changes
+**Last reviewed:** 2026-05-01 · **Review trigger:** every 4 sessions, when topology changes, or when an ADR amends this doc
 
----
+**Implements:**
+- ADR-0001 (Adopt Docker for service deployment)
+- ADR-0002 (State native, compute containerized)
+- ADR-0003 (Progressive secrets management)
+- ADR-0004 (Alpha-5 execution standards)
+- ADR-0005 (Adopt multi-writer coordination model)
 
-## 30-Second Summary
-
-- All services run as **Docker containers** (with narrow native exceptions — see §Exceptions)
-- Stateful services live on **Unraid** (the pet). Stateless app services live on **Macs** (cattle).
-- One compose file per machine, at `infra/compose/<machine>.yml`
-- Portainer on Unraid manages all Docker endpoints from one UI
-- Cross-machine networking via **Tailscale hostnames**, never hardcoded IPs
-- Image tags are **pinned** (no `:latest`, ever)
-- Secrets come from `~/jarvis/.secrets` (not committed)
-
-See `ADR-0001` for the reasoning behind Docker adoption.
+**Audience:** primary reader is Ken (operator). Secondary reader is future-collaborator-or-future-Ken landing cold. Daily ops up top; first-time setup near the bottom.
 
 ---
 
-## Topology
+## 1. 30-second summary
 
-```
-┌──────────────────────────────────────────────────┐
-│  UNRAID — STATEFUL (the pet)                     │
-│  Postgres · NATS JetStream · Redis               │
-│  Obsidian vault (SMB/NFS share)                  │
-│  Observability stack · Backups · Portainer       │
-└──────────────────────────────────────────────────┘
-                    ↕  Tailscale mesh
-   ┌──────────┬──────────────┬──────────────┐
-   │          │              │              │
-┌──┴───┐ ┌────┴────┐  ┌──────┴──────┐ ┌─────┴────┐
-│BRAIN │ │ GATEWAY │  │  ENDPOINT   │ │  FORGE   │   MACS — STATELESS (cattle)
-│      │ │         │  │             │ │          │
-│alpha │ │ caddy   │  │ financial   │ │ dev +    │
-│(llm) │ │ family  │  │ medical     │ │ claude   │
-│ollama│ │   web   │  │ scrapers    │ │  code    │
-│(nat- │ │ jwt     │  │ tool-use    │ │          │
-│ ive) │ │  edge   │  │             │ │          │
-└──────┘ └─────────┘  └─────────────┘ └──────────┘
-
-Sandbox (M1 8GB) lives on isolated VLAN. Not part of the JARVIS tailnet.
-```
+- **Eight repositories** spanning JARVIS: alpha (runtime), forge (dev pipeline), family, financial, council, print-copilot, standards, data-sources
+- **Five machines** active: Brain (orchestrator), Gateway (cloud egress), Endpoint (UI), Sandbox (dev/forge runner), Air (dev only — never service node). Plus Unraid for stateful tier
+- **Multi-writer coordination model** (ADR-0005): humans merge from any machine, agents always branch; uniform git author identity + dedicated `X-Machine` / `AI-*` trailers; agent-prefix branch namespace + GitHub branch protection
+- **Trait system** maps each repo to a deployment pattern: `F` Fan-out, `B` Branch-safety, `P` PR-only, `D` Submodule-consumed
+- **Docker for compute, native for state** (ADR-0002). Stateful services on Unraid; stateless app services on Macs via OrbStack
+- All cross-machine addressing via Tailscale magic DNS — never hardcoded IPs
+- All secrets via `get_secret()` reading from `~/jarvis/.secrets` (chmod 600, never committed)
 
 ---
 
-## Exceptions — services that run natively
+## 2. Daily ops quick reference
 
-Only two services run outside Docker:
+One-screen reference for the most common tasks. Assumes machines + repos already set up (see §13 First-time setup if cold).
 
-### 1. Ollama on Brain
-**Reason**: needs Apple Metal GPU access. Docker Desktop runs a Linux VM that cannot access the Metal API. Native install is 10-50× faster than containerized CPU-only fallback.
+### 2.1 Commit a change
 
-**Install pattern**:
+| Repo | Trait | How to commit |
+|---|---|---|
+| `jarvis-alpha` | F + B | Air: `bash ~/jarvis-alpha/scripts/jarvisalpha_commit.sh "msg"` (fan-out auto-deploys to Brain + Gateway + Endpoint + Sandbox). Sandbox-Claude-Code: branch + PR via `gh pr create` |
+| `jarvis-forge` | F + B | Air: `bash ~/jarvis-forge/scripts/jarvisforge_commit.sh "msg"` (Sandbox auto-pull). Sandbox-Claude-Code: branch + PR |
+| `jarvis-family` | B | Air: `bash ~/jarvis-family/scripts/familyvault_commit.sh "msg"`. Sandbox-Claude-Code: branch + push, then `bash ~/jarvis-family/scripts/familyvault_merge_branch.sh <branch>` from Air |
+| `jarvis-council` | B | Same pattern as family (when scaffolded) |
+| `jarvis-print-copilot` | B | Same pattern as family (when MS1 begins) |
+| `jarvis-financial` | P | Always GitHub PR + `gh pr create` from any machine; merge via web UI or `gh pr merge` |
+| `jarvis-standards` | P | Same as financial — GitHub PR flow |
+| `jarvis-data-sources` | P + D | Same as standards — PR flow; consumers always pin to commit SHA |
+
+### 2.2 Source environment for any session
+
 ```bash
-▶ BRAIN —
-brew install ollama
-brew services start ollama
-# Ollama binds to localhost:11434
-# Dockerized services on Brain reach it via host.docker.internal:11434
+source ~/jarvis/infra/env/.node_addresses
+source ~/jarvis/.secrets
 ```
 
-### 2. Claude Code on Forge
-**Reason**: interactive dev tool, not a service. Needs direct terminal access, filesystem access to source repos, SSH into other machines. Containerization adds friction without benefit.
+Run this at the top of any shell session that needs to talk to JARVIS nodes.
 
-**Any other exceptions require an ADR.**
+### 2.3 Common Docker operations
+
+```bash
+cd ~/jarvis/infra
+docker compose -f compose/<machine>.yml up -d        # start
+docker compose -f compose/<machine>.yml ps           # what's running
+docker compose -f compose/<machine>.yml logs -f svc  # tail logs
+docker compose -f compose/<machine>.yml exec svc sh  # shell in
+docker compose -f compose/<machine>.yml down         # stop (volumes persist)
+docker compose -f compose/<machine>.yml down -v      # ⚠️ destroys volumes
+```
+
+### 2.4 Common verification checks
+
+```bash
+# Health of a Brain service
+curl -sk https://${BRAIN_HOST}:8186/health | python3 -m json.tool
+
+# All five JARVIS machines reachable?
+for h in BRAIN GATEWAY ENDPOINT SANDBOX UNRAID; do
+  v="${h}_HOST" ; nc -zv "${!v}" 22 2>&1 | head -1
+done
+
+# Trailer parsing on a commit
+git log -1 --format=%B | git interpret-trailers --parse
+```
+
+### 2.5 Common branch + PR flow
+
+```bash
+# Human-driven feature
+git checkout -b feature/<topic>
+# ... work ...
+git push -u origin feature/<topic>
+gh pr create --base main --title "..." --body-file <bodyfile>
+
+# Agent-driven (Claude Code on Sandbox)
+git checkout -b claude-code/<purpose>/<topic>
+# ... work ...
+git push -u origin claude-code/<purpose>/<topic>
+gh pr create --base main --title "..." --body-file <bodyfile>
+# Branch-protection rule will require human review before merge
+```
+
+### 2.6 Source of truth — where to look
+
+| Question | Where |
+|---|---|
+| What's the current decision on X? | `docs/adr/ADR-NNNN-*.md` |
+| How do I deploy / commit / configure? | This file |
+| What's the schema of the prompt library / templates? | `scripts/README.md` + `scripts/_templates/` |
+| What's the dev process (review, PR, etc.)? | `DEVELOPMENT_PROCESS.md` |
 
 ---
 
-## Compose file organization
+## 3. Topology — current 5-machine reality
 
-### Per-machine structure
+```
+┌────────────────────────────────────────────────────────────────┐
+│  UNRAID — STATEFUL TIER (the pet)                              │
+│  Postgres 16 + pgvector + TimescaleDB · NATS JetStream · Redis │
+│  Loki + Grafana · Portainer · Backup target · Obsidian vault   │
+│  (Some services still on Brain native today — see ADR-0002     │
+│   for the state-native vs compute-containerized split)         │
+└────────────────────────────────────────────────────────────────┘
+                           ↕  Tailscale mesh
+       ┌──────────┬──────────────┬──────────────┐
+       │          │              │              │
+   ┌───┴───┐ ┌────┴────┐  ┌──────┴──────┐ ┌─────┴─────┐
+   │ BRAIN │ │ GATEWAY │  │  ENDPOINT   │ │  SANDBOX  │
+   │       │ │         │  │             │ │           │
+   │ alpha │ │ cloud   │  │ nginx :4100 │ │ jarvis-   │
+   │ brain │ │ adapter │  │ React UI    │ │ forge     │
+   │ :8186 │ │ :8283   │  │ (alpha UI)  │ │ :5001     │
+   │       │ │ Claude  │  │             │ │           │
+   │ post- │ │ Perplx  │  │             │ │ Claude    │
+   │ gres  │ │ Gemini  │  │             │ │ Code +    │
+   │ ollama│ │ UDM Pro │  │             │ │ CI runner │
+   │ tempo-│ │ proxy   │  │             │ │           │
+   │ ral   │ │         │  │             │ │           │
+   └───────┘ └─────────┘  └─────────────┘ └───────────┘
+                                                ↕
+                                          ┌─────┴─────┐
+                                          │    AIR    │
+                                          │           │
+                                          │ Cursor +  │
+                                          │ commits   │
+                                          │           │
+                                          │ NEVER a   │
+                                          │ service   │
+                                          │ node      │
+                                          └───────────┘
+```
+
+| Machine | Hardware | User | Tailscale | Role |
+|---|---|---|---|---|
+| Brain | Mac Studio M2 Ultra 192GB | `jarvisbrain` | `100.64.166.22` / `brain.${TAILNET}` | Orchestrator: FastAPI :8186, Postgres `jarvis_alpha`, Ollama, Temporal |
+| Gateway | Mac Mini M4 16GB | `gate` | `100.98.18.51` / `gateway.${TAILNET}` | Cloud adapter: Claude / Perplexity / Gemini on :8283; UDM Pro proxy |
+| Endpoint | Mac Mini M1 24GB | `jarvisendpoint` | `100.87.223.31` / `endpoint.${TAILNET}` | UI :4100 via nginx |
+| Sandbox | Mac Mini M4 16GB | `jarvissand` | `100.69.178.17` / `sandbox.${TAILNET}` | Dev / forge runner :5001, Claude Code execution, CI |
+| Air | MacBook Air | `swetagurnani` | (laptop, not always-on) | Dev only — Cursor IDE, commits. Never a service node |
+| Unraid | NAS | — | `100.x.x.x` / `unraid.${TAILNET}` | Stateful tier (planned per ADR-0002 Phase 5.1) |
+
+### 3.1 Recent topology changes — what's stale to be aware of
+
+- **2026-04-20** Gateway hardware swap M1 → M4. User was `infranet`, now `gate`. IP changed from `100.112.63.25` to `100.98.18.51`. Old port `:8282` retired in favor of `:8283`.
+- **2026-04-21** Sandbox IP drift to `100.69.178.17`. **Magic DNS `sandbox.${TAILNET}` is preferred** over IP in configs — survives any future hardware swap.
+- **2026-04-28** Sandbox migration: hostname changed from `jarvis-forge` (machine-name) to `jarvis-sandbox`. Some commit scripts referenced old hostname; fixed in jarvis-family Session #09 (commit `f0c6789`). Other repos may have similar drift — see §15 forbidden patterns / drift sweep.
+
+---
+
+## 4. Writer roles & coordination model
+
+Implements ADR-0005 in operational terms. See ADR-0005 for the architectural reasoning.
+
+### 4.1 Who writes from where
+
+| Writer | Identity at git layer | Allowed on `main` directly | Path required |
+|---|---|---|---|
+| Ken on Air | `Ken Haas <kennethphaas@gmail.com>` | Yes | Either |
+| Ken on Sandbox (Cursor) | `Ken Haas <kennethphaas@gmail.com>` | Yes | Either |
+| Ken on Brain / Gateway / Endpoint (rare ops) | `Ken Haas <kennethphaas@gmail.com>` | Discouraged but allowed | Either |
+| Claude Code on Sandbox | `Ken Haas <kennethphaas@gmail.com>` | **Never direct** | Branch + PR + human merge |
+| forge agent pipeline | `Ken Haas <kennethphaas@gmail.com>` | **Never direct** | Branch + PR + human merge |
+| GitHub Actions | bot identity | Workflow-defined | Signed commits, declared workflows |
+
+**The asymmetry is the point.** Humans-merge-anywhere preserves Ken's workflow flexibility (Sandbox-heavy as work shifts that direction). Agents-always-branched preserves the safety boundary that bb37103 surfaced as missing.
+
+### 4.2 Trailer scheme
+
+Every commit carries provenance via dedicated trailers in the commit body. The git author identity is uniform (`Ken Haas <kennethphaas@gmail.com>`); the trailers carry origin.
+
+```
+<commit subject>
+
+<body>
+
+X-Machine: sandbox
+AI-Agent: claude-code
+AI-Model: claude-opus-4-7
+```
+
+| Trailer | When | Values |
+|---|---|---|
+| `X-Machine` | Always | `air` \| `sandbox` \| `brain` \| `gateway` \| `endpoint` |
+| `AI-Agent` | Only if an agent invoked `git commit` | `claude-code` \| `forge-pipeline` \| `cursor-composer` \| `github-actions` |
+| `AI-Model` | Only if `AI-Agent` is set and model is known | e.g. `claude-opus-4-7`, `claude-sonnet-4-6` |
+
+**`AI-Agent` is for the actor of the commit, not the source of the content.** If you (human) paste agent-drafted content and run `git commit` yourself, the agent did NOT commit — only you did. Don't add `AI-Agent` in that case. Mention the agent in the commit body as narrative attribution if helpful, but trailers are reserved for actor-of-commit.
+
+**Why not `Co-Authored-By`:** see ADR-0005 §2.2. Industry critique converged on dedicated `AI-*` trailers in 2026 (Codex CLI PR #11617, Aider, OpenCode).
+
+### 4.3 Branch namespace
+
+| Origin | Pattern | Example |
+|---|---|---|
+| Human | `feature/<topic>` `fix/<topic>` `chore/<topic>` `audit/<topic>` `docs/<topic>` | `feature/multi-writer-arch` |
+| Claude Code | `claude-code/<purpose>/<topic>` | `claude-code/fix/rls-audit` |
+| forge pipeline | `forge/<purpose>/<topic>` | `forge/build/f-046-deployment` |
+| GitHub Actions | `bot/<workflow>/<topic>` | `bot/release/v1.2.3` |
+
+`<purpose>` matches the human verb categories: `feature`, `fix`, `chore`, `audit`, `docs`. `<topic>` is short kebab-case description.
+
+### 4.4 Verification commands
+
+```bash
+# Parse trailer on most recent commit
+git log -1 --format=%B | git interpret-trailers --parse
+
+# Find all agent commits
+git log --grep="^AI-Agent:" --format="%h %ai %s"
+
+# Find all commits from a specific machine
+git log --grep="^X-Machine: sandbox" --format="%h %ai %s"
+
+# Find all human commits (no agent trailer)
+git log --grep="^AI-Agent:" --invert-grep --format="%h %ai %s"
+```
+
+---
+
+## 5. Repository trait map
+
+### 5.1 The four traits
+
+| Trait | Code | Meaning | Operational impact |
+|---|---|---|---|
+| Fan-out | `F` | Commit script auto-deploys to multiple nodes via SSH | Multi-node SSH, halt-on-fail, deploy plan banner, `JARVIS_SKIP_<NODE>=1` env flags |
+| Branch-safety | `B` | Sandbox / agents must branch (DEBT-027 pattern) | Host detection in commit script, drift check, merge helper script |
+| PR-only | `P` | No local commit script; GitHub PR review IS the gate | Branch protection rules + status checks; `gh` CLI is the operator |
+| Submodule-consumed | `D` | Pinned to commit SHA by consumers; never `main` | `CONSUMERS.md` documents who pins what; CI checks consumer pins quarterly |
+
+### 5.2 Per-repo assignment
+
+| Repo | Traits | Adoption status (as of 2026-05-01) |
+|---|---|---|
+| `jarvis-alpha` | F + B | F shipped (TD-88, commit `35d34fc`); B pending Session #11 |
+| `jarvis-forge` | F + B | F shipped; B pending Session #12 |
+| `jarvis-family` | B | Shipped via DEBT-027 (Session #08–09); pilot for new commit-script template Session #10 |
+| `jarvis-council` | B | Pending — adopt B from day one when MS1 begins |
+| `jarvis-print-copilot` | B | Pending — adopt B from day one when MS1 begins |
+| `jarvis-financial` | P | GitHub PR + `gh` CLI active; branch protection rules pending Session #13 |
+| `jarvis-standards` | P | This PR + branch protection rules pending Session #14 |
+| `jarvis-data-sources` | P + D | Branch protection + `CONSUMERS.md` pending Session #17 |
+
+### 5.3 What "adopting" a trait means
+
+- **F**: repo has `<repo>_commit.sh` generated from `commit_core.template.sh` with `@@HAS_FANOUT@@=true`, plus per-node SSH targets configured in `propagate.config`
+- **B**: repo has DEBT-027 host check in commit script + branch protection rule on `claude-code/**` / `forge/**` / `bot/**` patterns
+- **P**: repo has branch protection rule on `main` (no force-push, linear history) + status checks (lint, test, trailer-validation)
+- **D**: repo has `CONSUMERS.md` listing all known consumer pins + quarterly drift audit GitHub Action
+
+---
+
+## 6. GitHub branch protection — exact settings
+
+Apply this to **every** JARVIS repository. Branch protection is the GitHub-layer enforcement of ADR-0005's Q1 + Q3.
+
+### 6.1 Rule 1 — Agent branches require PR review
+
+**Settings → Branches → Add classic branch protection rule** (or use Rulesets — equivalent settings):
+
+```
+Branch name pattern: claude-code/** | forge/** | bot/**
+```
+
+| Setting | Value | Why |
+|---|---|---|
+| Require a pull request before merging | ✓ | Q1 — agents must always go through review |
+| Required approvals | 1 | Human-must-approve for agent commits |
+| Dismiss stale pull request approvals when new commits are pushed | ✓ | Force re-review if agent amends |
+| Require review from Code Owners | Optional | Useful for repos with `CODEOWNERS` file |
+| Require approval of the most recent reviewable push | ✓ | Prevents silent re-push past approval |
+| Require status checks to pass before merging | ✓ | Lint + test + trailer-validation |
+| Required checks | `lint`, `test`, `trailer-validation` (when CI ships) | Each must pass |
+| Require branches to be up to date before merging | ✓ | Prevents merge-skew bugs |
+| Require linear history | ✓ | Forces rebase-merge or squash-merge; no merge commits |
+| Do not allow bypassing the above settings | ✓ | Rule applies to admins too |
+
+### 6.2 Rule 2 — `main` branch invariants
+
+```
+Branch name pattern: main
+```
+
+| Setting | Value | Why |
+|---|---|---|
+| Require a pull request before merging | **OFF for F/B trait repos**, **ON for P trait repos** | Q1 humans-merge-anywhere for F/B; P repos use PR review as the gate |
+| Restrict deletions | ✓ | `main` cannot be deleted |
+| Require linear history | ✓ | No merge commits — squash or rebase only |
+| Block force pushes | ✓ | Prevents history rewrite |
+| Require signed commits | OFF (until Phase 5c per ADR-0003) | Future enhancement |
+
+The asymmetry is deliberate. F/B trait repos (alpha, forge, family, council, print-copilot) have local commit scripts that enforce safety; `main` is open to direct push by humans. P trait repos (financial, standards, data-sources) have no commit script, so the GitHub PR review is the only gate.
+
+### 6.3 Audit checklist — quarterly
+
+Branch protection drift (someone disables a rule in a panic) is the #1 way ADR-0005 silently breaks. Audit every quarter:
+
+```bash
+# For each JARVIS repo, run:
+gh api repos/kphaas/<repo>/branches/main/protection --jq '
+  {
+    requires_linear_history: .required_linear_history.enabled,
+    blocks_force_push: .allow_force_pushes.enabled | not,
+    requires_pr: (.required_pull_request_reviews // null) != null,
+    required_status_checks: (.required_status_checks.contexts // [])
+  }'
+```
+
+Compare against expected values per repo trait. Any drift is a P1 to fix.
+
+### 6.4 Rule creation procedure (manual, GitHub web UI)
+
+1. Open repo → **Settings** (top right)
+2. Left sidebar → **Branches**
+3. Click **Add classic branch protection rule** (or **Add ruleset** if you prefer Rulesets — both work)
+4. Enter pattern from §6.1 or §6.2
+5. Check the boxes per the table
+6. Scroll down → **Create**
+7. Verify by attempting a direct push to a `claude-code/` branch as an admin — should be blocked
+
+Repeat per repo. There is no GitHub-native bulk apply for branch protection across repos; you set this up once per repo. Time per repo: ~3 min.
+
+---
+
+## 7. Per-repo adoption procedure
+
+Use this when adopting ADR-0005 in a repo for the first time.
+
+### 7.1 Steps
+
+1. **Verify trait assignment** in §5.2. Is this repo F + B, B-only, P, or P + D?
+2. **Configure GitHub branch protection** per §6.1 and §6.2. Time: ~3 min.
+3. **Generate commit script from template** (for F or B trait):
+   ```bash
+   cd ~/jarvis-standards
+   bash scripts/propagate_scripts.sh --target <repo>
+   ```
+   This generates `<repo>_commit.sh` from `commit_core.template.sh` with the right `@@VAR@@` substitutions.
+4. **Smoke-test the new commit script** locally before any push:
+   ```bash
+   cd ~/<repo>
+   git checkout -b feature/adopt-adr-0005-commit-script
+   bash scripts/<repo>_commit.sh "test: smoke ADR-0005 commit script"
+   git log -1 --format=%B | git interpret-trailers --parse
+   # Expected: X-Machine: <machine>
+   ```
+5. **Open PR adopting the script** — humans review the diff
+6. **Merge to main**
+7. **Verify trailer parses on the merged commit** (proves end-to-end)
+8. **Document adoption in repo `CHANGELOG.md` or handoff** — date, ADR reference, smoke-test result
+
+### 7.2 Smoke-test checklist
+
+Before considering adoption complete, run:
+
+- [ ] `git log -1 --format=%B | git interpret-trailers --parse` outputs the expected trailers
+- [ ] Branch protection rule blocks a test direct push to `claude-code/test-block`
+- [ ] Branch protection rule allows a human direct push to `feature/test-allow` (for F/B trait repos)
+- [ ] Existing CI (lint, test) still passes against the new commit script
+- [ ] Old commit script is removed or marked deprecated
+- [ ] `propagate.config` lists this repo with the right trait
+
+### 7.3 Rollback procedure
+
+If the new script breaks something post-merge:
+
+1. **Immediate:** revert the merge commit (`gh pr revert <pr-number>` or web UI)
+2. **Restore old commit script** from git history (`git checkout <pre-adoption-sha> -- scripts/<repo>_commit.sh`)
+3. **File issue** in `kphaas/jarvis-standards` with title `[adoption regression] <repo> ADR-0005`
+4. **Pause adoption rollout** for other repos until root cause identified
+5. **Fix in template, not in repo** — update `commit_core.template.sh` and re-propagate
+
+Do NOT patch the per-repo script directly. It's generated; manual edits will be overwritten on next propagation.
+
+---
+
+## 8. Commit scripts & template propagation
+
+### 8.1 Architecture
+
+```
+jarvis-standards/scripts/
+├── _templates/                          ← source of truth
+│   ├── commit_core.template.sh          ← unified commit script (NEW, this PR)
+│   ├── check_sync.template.sh           ← pre-commit drift validator
+│   └── ruff_detect.template.sh          ← sourceable lib for ruff resolution
+├── propagate_scripts.sh                 ← propagation engine
+├── propagate.config                     ← per-repo template + trait mapping
+└── README.md
+```
+
+Templates use `@@VAR@@` placeholder syntax. `propagate_scripts.sh` substitutes vars per repo defined in `propagate.config`, writes the result to the consumer repo with a `# GENERATED FROM jarvis-standards` header for overwrite-safety.
+
+### 8.2 `propagate.config` schema
+
+Pipe-delimited mapping. One line per (template, target repo, trait) combination:
+
+```
+template|target_repo|target_path|@@VAR1@@=val1|@@VAR2@@=val2|...
+```
+
+Example entries:
+
+```
+commit_core.template.sh|jarvis-family|scripts/familyvault_commit.sh|@@REPO_NAME@@=jarvis-family|@@COMMIT_SCRIPT_NAME@@=familyvault_commit.sh|@@HAS_FANOUT@@=false|@@HAS_BRANCH_SAFETY@@=true|@@MAIN_BRANCH@@=main
+commit_core.template.sh|jarvis-alpha|scripts/jarvisalpha_commit.sh|@@REPO_NAME@@=jarvis-alpha|@@COMMIT_SCRIPT_NAME@@=jarvisalpha_commit.sh|@@HAS_FANOUT@@=true|@@HAS_BRANCH_SAFETY@@=true|@@FANOUT_NODES@@=brain,gateway,endpoint,sandbox|@@MAIN_BRANCH@@=main
+```
+
+### 8.3 Trait switches in `commit_core.template.sh`
+
+The template uses bash conditionals on trait values:
+
+```bash
+if [[ "@@HAS_FANOUT@@" == "true" ]]; then
+  # Run fan-out logic — SSH to @@FANOUT_NODES@@
+fi
+
+if [[ "@@HAS_BRANCH_SAFETY@@" == "true" ]]; then
+  # Run host detection — block direct-to-main from non-Air machines for agents
+fi
+```
+
+This keeps a single source of truth across F-trait, B-trait, and F+B-trait repos.
+
+### 8.4 Generation procedure
+
+```bash
+cd ~/jarvis-standards
+git checkout main && git pull
+bash scripts/propagate_scripts.sh --dry-run        # see what would change
+bash scripts/propagate_scripts.sh                  # actually generate
+# Result: each consumer repo gets an updated commit script with the GENERATED header
+```
+
+### 8.5 Drift detection
+
+A consumer repo's commit script is considered "drifted" if it has been hand-edited after generation (the `# GENERATED FROM jarvis-standards` header includes a hash of the template at generation time).
+
+```bash
+bash scripts/propagate_scripts.sh --check
+# Reports drift across all consumer repos; exit non-zero if any drift
+```
+
+Run this before every standards-repo release. Quarterly is the minimum cadence.
+
+---
+
+## 9. Compose & Docker
+
+This section largely preserves the existing DEPLOYMENT.md content from 2026-04-19. Updates are flagged with **[UPDATED]**.
+
+### 9.1 Compose file organization
 
 ```
 jarvis-infra/
 ├── compose/
-│   ├── unraid.yml          # Postgres, NATS, Redis, observability, Portainer, Family web (if here)
-│   ├── brain.yml           # Alpha services
-│   ├── gateway.yml         # Caddy, Family web (primary home post-swap), JWT edge
-│   ├── endpoint.yml        # Financial, Medical, scrapers
-│   └── forge.yml           # dev containers (Postgres-for-test, build runners)
+│   ├── unraid.yml          # Postgres, NATS, Redis, observability, Portainer
+│   ├── brain.yml           # Alpha services (post-Alpha-5 containerization)
+│   ├── gateway.yml         # Cloud adapter, JWT edge   [UPDATED — was caddy/family/jwt]
+│   ├── endpoint.yml        # nginx, React UI
+│   └── sandbox.yml         # forge dashboard, CI runner    [UPDATED — was forge.yml]
 ├── env/
 │   ├── .node_addresses     # Tailscale hostnames — committed
-│   └── .env.*.example      # committed templates, real .env files NEVER committed
+│   └── .env.*.example      # committed templates; real .env files NEVER committed
 └── README.md
 ```
 
-### Naming
+**[UPDATED] On the `forge.yml` → `sandbox.yml` rename:** the machine was renamed from `jarvis-forge` to `jarvis-sandbox` on 2026-04-28. Compose file follows the machine name. References in shell scripts should use `${SANDBOX_HOST}`, never the legacy `${FORGE_HOST}`.
+
+### 9.2 Naming
 
 - Compose project name = machine name: `name: jarvis-brain` in `brain.yml`
-- Container names = `<project>-<service>`: `jarvis-brain-postgres` from `brain.yml`'s `postgres` service
+- Container names = `<project>-<service>`: `jarvis-brain-postgres`
 
----
+### 9.3 Image pinning — mandatory
 
-## Image pinning — mandatory
-
-**Never use `:latest`.** Always pin to a specific tag. Prefer digest-pinning for production-critical services.
+Never use `:latest`. Always pin to a specific tag. Prefer digest-pinning for production-critical services.
 
 ```yaml
 # ✅ Good
@@ -112,185 +506,52 @@ image: postgres:latest
 image: redis
 ```
 
-**Rationale**: `:latest` is a moving target. A reproducible deploy requires a reproducible image. Digest pinning prevents supply-chain surprises from tag re-pushes.
+**Rationale:** `:latest` is a moving target. Reproducible deploys require reproducible images. Digest pinning prevents supply-chain surprises from tag re-pushes.
 
-**Update cadence**: pull new versions explicitly, per service, during planned maintenance — not on every restart.
+**Update cadence:** pull new versions explicitly, per service, during planned maintenance — not on every restart.
 
----
+### 9.4 Registry strategy
 
-## Registry strategy
+#### Today (acceptable)
 
-### Today (acceptable)
 - Pull from Docker Hub with pinned tags
 - Cache locally on each Mac (Docker default)
 
-### Planned (Sovereignty First hardening)
-- Self-hosted registry on Unraid (`registry:2` container)
+#### Planned (Sovereignty First hardening)
+
+- Self-hosted `registry:2` on Unraid (planned in ADR-0002 Phase 5.2)
 - Mirror all pinned base images to Unraid at adoption time
-- Services pull from `unraid.${TAILNET}:5000/postgres:16.4-alpine` instead of Docker Hub
+- Services pull from `registry.${TAILNET}:5000/postgres:16.4-alpine` instead of Docker Hub
 - If Docker Hub goes down, JARVIS keeps running
 
-**Trigger for planned hardening**: first Docker Hub outage that affects us, or explicit sovereignty audit.
+**Trigger for hardening:** first Docker Hub outage that affects us, or explicit sovereignty audit.
 
----
-
-## Node addressing — no hardcoded hostnames
-
-**Standard**: per `DEVELOPMENT_PROCESS.md § Cross-Repo Consistency #6` — no hardcoded IPs, hostnames, or URLs.
-
-### The `.node_addresses` file
-
-Lives at `infra/env/.node_addresses`. Committed. Plain shell-sourceable:
-
-```bash
-# infra/env/.node_addresses
-# Canonical Tailscale hostnames for JARVIS nodes.
-# Update here; everything else references these variables.
-
-export TAILNET=your-tailnet.ts.net
-
-export BRAIN_HOST=brain.${TAILNET}
-export GATEWAY_HOST=gateway.${TAILNET}
-export ENDPOINT_HOST=endpoint.${TAILNET}
-export FORGE_HOST=forge.${TAILNET}
-export AIR_HOST=air.${TAILNET}
-export UNRAID_HOST=unraid.${TAILNET}
-
-# Service ports (stable across JARVIS)
-export POSTGRES_PORT=5432
-export POSTGRES_FINANCIAL_PORT=5433
-export REDIS_PORT=6379
-export NATS_PORT=4222
-export NATS_HTTP_PORT=8222
-```
-
-### Usage in compose files
-
-```yaml
-# ✅ Good — references env var
-environment:
-  POSTGRES_URL: postgresql://user:pass@${UNRAID_HOST}:${POSTGRES_PORT}/jarvis_alpha
-
-# ❌ Bad — hardcoded
-environment:
-  POSTGRES_URL: postgresql://user:pass@unraid.ken-tailnet.ts.net:5432/jarvis_alpha
-```
-
-### Usage in shell commands + docs
-
-```bash
-# Source at the top of any script or session that references nodes
-source ~/jarvis/infra/env/.node_addresses
-
-# Then use variables everywhere
-ssh "${BRAIN_HOST}"
-nc -zv "${UNRAID_HOST}" "${POSTGRES_PORT}"
-```
-
-### Usage in Python code
-
-Python services read the same concepts via `node_addresses.py` (one per repo until a shared helper is extracted):
-
-```python
-# node_addresses.py — stub, canonical impl pending F-XXX
-import os
-
-TAILNET = os.environ["TAILNET"]
-BRAIN_HOST = f"brain.{TAILNET}"
-GATEWAY_HOST = f"gateway.{TAILNET}"
-# ...
-```
-
----
-
-## Secrets — `get_secret()` pattern
-
-**Standard**: per `DEVELOPMENT_PROCESS.md § Cross-Repo Consistency #3` — all secrets via `get_secret()` reading from `~/jarvis/.secrets`.
-
-### The secrets file
-
-Lives at `~/jarvis/.secrets` on each machine. Mode `600`. **Never committed.** Shell-sourceable:
-
-```bash
-# ~/jarvis/.secrets
-# Real values. Generate with: openssl rand -hex 32
-
-export POSTGRES_ALPHA_PASSWORD=a1b2c3...
-export POSTGRES_FINANCIAL_PASSWORD=d4e5f6...
-export REDIS_PASSWORD=...
-export NATS_ALPHA_PASSWORD=...
-export NATS_FINANCIAL_PASSWORD=...
-export NATS_FAMILY_PASSWORD=...
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export LITELLM_MASTER_KEY=sk-...
-export LITELLM_SALT_KEY=...
-```
-
-### Usage in compose
-
-Do NOT put secrets in compose files directly. Docker Compose reads them from the shell environment at `up` time:
-
-```bash
-▶ ANY MAC —
-source ~/jarvis/infra/env/.node_addresses
-source ~/jarvis/.secrets
-docker compose -f compose/brain.yml up -d
-```
-
-In compose:
-```yaml
-services:
-  postgres:
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_ALPHA_PASSWORD}  # pulled from env
-```
-
-### Bootstrap
-
-First-time setup:
-```bash
-▶ ANY MAC —
-mkdir -p ~/jarvis
-touch ~/jarvis/.secrets
-chmod 600 ~/jarvis/.secrets
-# Paste generated secrets; do NOT commit
-```
-
-### Secret rotation
-
-See `DEVELOPMENT_PROCESS.md § Decision Matrix` — secret rotation is **Air direct-edit only**, no AI agent allowed. Rotate individual values in `~/jarvis/.secrets`, then restart affected services.
-
----
-
-## Docker runtime per machine
+### 9.5 Docker runtime per machine
 
 | Machine | Runtime | Auto-start | Rationale |
 |---|---|---|---|
 | Unraid | Built-in Docker | On boot | Unraid's default Docker plugin |
-| Brain | **OrbStack** | At login | Fastest on Apple Silicon, better battery vs Docker Desktop |
+| Brain | OrbStack | At login | Fastest on Apple Silicon, no licensing cost |
 | Gateway | OrbStack | At login | Same |
 | Endpoint | OrbStack | At login | Same |
-| Forge | OrbStack | At login | Same |
+| Sandbox | OrbStack | At login | Same  **[UPDATED — was forge]** |
 | Air | OrbStack | Manual | Laptop; dev only |
-| Sandbox | None | — | Sandbox isn't part of JARVIS |
 
 Docker Desktop is acceptable if OrbStack doesn't fit a contributor's situation. Both run the same containers.
 
----
-
-## Portainer — admin UI
+### 9.6 Portainer admin UI
 
 Portainer runs on Unraid. All Docker endpoints (Unraid + every always-on Mac) register agents so Portainer shows everything from one dashboard.
 
-### Access
+#### Access
+
 - URL: `https://${UNRAID_HOST}:9443`
-- Auth: admin account created at first boot, password in 1Password
+- Auth: admin account at first boot, password in 1Password
 - ⚠️ Portainer admin = effectively root on all JARVIS Docker hosts. Long random password, never shared.
 
-### Per-Mac agent install
+#### Per-Mac agent install
+
 ```bash
-▶ ANY MAC —
 docker run -d \
   --name portainer_agent \
   --restart=always \
@@ -300,13 +561,11 @@ docker run -d \
   portainer/agent:latest
 ```
 
-Then in Portainer UI, add each as a "Docker Standalone — Agent" environment using `${BRAIN_HOST}:9001` etc.
+Then in Portainer UI, add each as a "Docker Standalone — Agent" environment using `${BRAIN_HOST}:9001`, `${SANDBOX_HOST}:9001`, etc.
 
----
+### 9.7 Compose conventions
 
-## Compose conventions
-
-### Standard top-matter
+#### Standard top-matter
 
 Every compose file starts with:
 
@@ -330,7 +589,7 @@ x-restart: &default-restart
   restart: unless-stopped
 ```
 
-### Every service includes
+#### Every service includes
 
 - `container_name` for predictable logs/exec targets
 - `restart: unless-stopped` (via the anchor)
@@ -338,116 +597,374 @@ x-restart: &default-restart
 - `logging: *default-logging` (bounds disk use)
 - Explicit `volumes` and `networks`
 
-### Networking
+#### Networking
 
 - Internal: Docker bridge network per machine, named `backend`
 - Cross-machine: services bind to `127.0.0.1:<port>` on the host; Tailscale hostname is how other machines reach them
-- Never expose a service on `0.0.0.0` unless it's the Gateway's Caddy
+- Never expose a service on `0.0.0.0` unless it's the Gateway's public-facing edge
+
+### 9.8 Ollama on Brain — native exception
+
+Ollama runs natively on Brain (NOT in a container). Reason: needs Apple Metal GPU access. Docker Desktop's Linux VM cannot provide GPU access on Mac. Running Ollama in Docker = 10-50× slower CPU-only fallback.
+
+```bash
+brew install ollama
+brew services start ollama
+# Ollama binds to 127.0.0.1:11434
+# Containerized services on Brain reach it via host.docker.internal:11434
+```
+
+This exception is documented in ADR-0002. Other services may NOT bypass containerization without an ADR.
 
 ---
 
-## Common operations
+## 10. Node addressing
 
-All commands assume you've sourced `.node_addresses` and `.secrets`.
+Standard: per `DEVELOPMENT_PROCESS.md` § Cross-Repo Consistency #6 — no hardcoded IPs, hostnames, or URLs.
 
-### Start services on a machine
+### 10.1 The `.node_addresses` file
+
+Lives at `infra/env/.node_addresses`. Committed. Plain shell-sourceable:
+
 ```bash
-▶ ANY JARVIS MAC —
-cd ~/jarvis/infra
-docker compose -f compose/brain.yml up -d
+# Canonical Tailscale magic-DNS hostnames for JARVIS nodes.
+# Update here; everything else references these variables.
+
+export TAILNET=tail40ed36.ts.net
+
+export BRAIN_HOST=brain.${TAILNET}
+export GATEWAY_HOST=gateway.${TAILNET}
+export ENDPOINT_HOST=endpoint.${TAILNET}
+export SANDBOX_HOST=sandbox.${TAILNET}     # [UPDATED — magic DNS jarvis-sandbox preferred over IP]
+export AIR_HOST=air.${TAILNET}
+export UNRAID_HOST=unraid.${TAILNET}
+
+# Service ports (stable across JARVIS)
+export ALPHA_BRAIN_PORT=8186
+export ALPHA_GATEWAY_PORT=8283
+export ALPHA_UI_PORT=4100
+export FORGE_PORT=5001
+export POSTGRES_PORT=5432
+export REDIS_PORT=6379
+export NATS_PORT=4222
+export NATS_HTTP_PORT=8222
 ```
 
-### See what's running
-```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml ps
+### 10.2 Magic DNS preference
+
+**Always prefer magic DNS hostname over IP.** Tailscale magic DNS resolves the current IP for a node — survives any future hardware swap. The 2026-04-20 Gateway swap and 2026-04-21 Sandbox IP drift would have been zero-touch if all references had been to magic DNS.
+
+✅ Good: `ssh sandbox` (resolves to current IP)
+❌ Bad: `ssh 100.69.178.17` (will silently break next IP drift)
+
+### 10.3 Usage in compose files
+
+```yaml
+# ✅ Good — references env var
+environment:
+  POSTGRES_URL: postgresql://user:pass@${UNRAID_HOST}:${POSTGRES_PORT}/jarvis_alpha
+
+# ❌ Bad — hardcoded
+environment:
+  POSTGRES_URL: postgresql://user:pass@unraid.tail40ed36.ts.net:5432/jarvis_alpha
 ```
 
-### Tail logs from one service
+### 10.4 Usage in shell + Python
+
 ```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml logs -f postgres
+# Source at the top of any session referencing nodes
+source ~/jarvis/infra/env/.node_addresses
+ssh "${SANDBOX_HOST}"
+nc -zv "${UNRAID_HOST}" "${POSTGRES_PORT}"
 ```
 
-### Shell into a running container
-```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml exec postgres psql -U jarvis_alpha
-```
-
-### Pull updates (scheduled maintenance only)
-```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml pull
-docker compose -f compose/brain.yml up -d
-```
-
-### Stop services (data persists in volumes)
-```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml down
-```
-
-### Destructive reset (loses all data in volumes)
-```bash
-▶ ANY MAC —
-docker compose -f compose/brain.yml down -v   # ⚠️ removes volumes
+```python
+# Python — read from env via node_addresses.py per repo
+import os
+TAILNET = os.environ["TAILNET"]
+BRAIN_HOST = f"brain.{TAILNET}"
+SANDBOX_HOST = f"sandbox.{TAILNET}"
 ```
 
 ---
 
-## Backup integration
+## 11. Secrets — `get_secret()` pattern
 
-Docker volumes used for state (Postgres, NATS JetStream) are backed up nightly via Unraid's backup plugin. Specific schedule and retention per `BACKUP.md` (planned standard).
+Standard: per `DEVELOPMENT_PROCESS.md` § Cross-Repo Consistency #3 — all secrets via `get_secret()` reading from `~/jarvis/.secrets`.
+
+### 11.1 The secrets file
+
+Lives at `~/jarvis/.secrets` on Brain / Gateway / Endpoint / Air, and `~/.secrets` on Sandbox (note the path difference). Mode `600`. **Never committed.** Shell-sourceable:
+
+```bash
+# ~/jarvis/.secrets (or ~/.secrets on Sandbox)
+# Real values. Generate with: openssl rand -hex 32
+
+export ALPHA_PIN=...
+export ALPHA_SERVICE_TOKEN=...
+export ALPHA_BUDDY_TOKEN=...
+export POSTGRES_ALPHA_PASSWORD=...
+export POSTGRES_FINANCIAL_PASSWORD=...
+export REDIS_PASSWORD=...
+export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export PERPLEXITY_API_KEY=pplx-...
+export GEMINI_API_KEY=...
+export GITHUB_TOKEN=ghp-...
+```
+
+### 11.2 Usage in compose
+
+Do NOT put secrets in compose files directly. Compose reads them from the shell environment at `up` time:
+
+```bash
+source ~/jarvis/infra/env/.node_addresses
+source ~/jarvis/.secrets
+docker compose -f compose/brain.yml up -d
+```
+
+In compose:
+```yaml
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ALPHA_PASSWORD}  # pulled from env
+```
+
+### 11.3 Bootstrap
+
+First-time setup:
+```bash
+mkdir -p ~/jarvis
+touch ~/jarvis/.secrets
+chmod 600 ~/jarvis/.secrets
+# Paste generated secrets; do NOT commit
+```
+
+### 11.4 Rotation
+
+See `DEVELOPMENT_PROCESS.md` § Decision Matrix — secret rotation is **Air direct-edit only**, no AI agent allowed. Rotate individual values in `~/jarvis/.secrets`, then restart affected services.
+
+The `scripts/rotate_secret.py` tool (jarvis-alpha) supports automation for service tokens with `requires_alter_role:false`. DB password rotation pending TD-134.
+
+### 11.5 Per-service secrets splitting (Phase 5.0 plan)
+
+ADR-0003 plans to split the monolithic `~/jarvis/.secrets` into `~/jarvis/secrets.d/<service>.env` per-service files. Not yet shipped. Status: planned for Alpha-5 Phase 5.0.
+
+---
+
+## 12. Common operations
+
+All commands assume `.node_addresses` and `.secrets` are sourced.
+
+### 12.1 Service operations
+
+```bash
+docker compose -f compose/brain.yml up -d                   # start
+docker compose -f compose/brain.yml ps                      # status
+docker compose -f compose/brain.yml logs -f postgres        # tail logs
+docker compose -f compose/brain.yml exec postgres psql -U jarvis_alpha    # shell in
+docker compose -f compose/brain.yml pull && docker compose -f compose/brain.yml up -d   # pull updates
+docker compose -f compose/brain.yml down                    # stop (volumes persist)
+docker compose -f compose/brain.yml down -v                 # ⚠️ destroys volumes
+```
+
+### 12.2 Repo operations
+
+```bash
+# Commit (F + B trait — alpha as example)
+bash ~/jarvis-alpha/scripts/jarvisalpha_commit.sh "msg"
+
+# Commit (B trait — family as example)
+bash ~/jarvis-family/scripts/familyvault_commit.sh "msg"
+
+# Branch + PR (P trait — financial / standards / data-sources)
+git checkout -b feature/<topic>
+# ... work ...
+git push -u origin feature/<topic>
+gh pr create --base main --title "..." --body-file <bodyfile>
+```
+
+### 12.3 Branch protection audit (quarterly)
+
+```bash
+for repo in jarvis-alpha jarvis-forge jarvis-family jarvis-financial jarvis-standards jarvis-council jarvis-data-sources jarvis-print-copilot; do
+  echo "=== $repo ==="
+  gh api repos/kphaas/$repo/branches/main/protection --jq '
+    {
+      requires_linear_history: .required_linear_history.enabled,
+      blocks_force_push: .allow_force_pushes.enabled | not,
+      requires_pr: (.required_pull_request_reviews // null) != null
+    }' 2>/dev/null || echo "  (no protection rule or no access)"
+done
+```
+
+---
+
+## 13. First-time setup
+
+For collaborator-or-future-Ken landing cold. Ordered: machine → repos → verification.
+
+### 13.1 Per-machine setup (one-time)
+
+```bash
+# 1. Clone jarvis-infra (assumed to live at ~/jarvis/infra/)
+mkdir -p ~/jarvis
+cd ~/jarvis
+git clone git@github.com:kphaas/jarvis-infra.git infra
+
+# 2. Source environment
+source ~/jarvis/infra/env/.node_addresses
+
+# 3. Create secrets file (paste from password manager)
+touch ~/jarvis/.secrets
+chmod 600 ~/jarvis/.secrets
+# Edit and paste from 1Password / Bitwarden / your store
+
+# 4. Install OrbStack (or Docker Desktop)
+brew install --cask orbstack
+open /Applications/OrbStack.app
+# Accept license, set to launch at login
+
+# 5. Install gh CLI (if not present)
+brew install gh
+gh auth login
+
+# 6. Install ruff (if Python repos in scope)
+brew install uv
+uv tool install ruff
+```
+
+### 13.2 Per-repo setup
+
+For each repo you'll work in:
+
+```bash
+cd ~
+git clone git@github.com:kphaas/<repo>.git
+cd <repo>
+
+# Verify branch protection config matches §6
+gh api repos/kphaas/<repo>/branches/main/protection --jq '.'
+
+# Review the trait assignment in DEPLOYMENT.md §5.2
+
+# If the repo has a commit script (F or B trait), make it executable
+chmod +x scripts/*_commit.sh
+```
+
+### 13.3 Verification — end-to-end smoke test
+
+```bash
+# Source env
+source ~/jarvis/infra/env/.node_addresses
+source ~/jarvis/.secrets
+
+# Reach all JARVIS machines via SSH
+for h in BRAIN GATEWAY ENDPOINT SANDBOX UNRAID; do
+  v="${h}_HOST"
+  echo -n "${h}: "
+  nc -zv "${!v}" 22 2>&1 | head -1
+done
+
+# Reach Brain alpha API health
+curl -sk https://${BRAIN_HOST}:8186/health | python3 -m json.tool
+
+# Open Forge dashboard
+open https://${SANDBOX_HOST}:5001
+```
+
+If all of the above succeed, you have a working JARVIS dev setup.
+
+---
+
+## 14. Backup integration
+
+Docker volumes used for state (Postgres, NATS JetStream) are backed up nightly via Unraid's backup plugin. Specific schedule and retention live in `BACKUP.md` (planned standard).
 
 For Postgres specifically:
 ```bash
-▶ UNRAID — nightly cron
+# UNRAID — nightly cron
 docker compose -f compose/unraid.yml exec -T postgres \
   pg_dumpall -U jarvis_alpha | gzip > /mnt/user/backups/pg_alpha_$(date +%Y%m%d).sql.gz
 ```
 
+Pre-Alpha-5 (today): Postgres still runs natively on Brain, not in a container. Backup goes through `pg_dump` on Brain via cron, ships dumps to Unraid SMB mount. Backup script lives in jarvis-alpha repo.
+
 ---
 
-## Forbidden patterns
+## 15. Forbidden patterns
+
+### 15.1 Docker / Compose
 
 1. `image: postgres:latest` — no floating tags
-2. Hardcoded hostnames or IPs in compose files
+2. Hardcoded hostnames or IPs in compose files (use Tailscale magic DNS)
 3. Plaintext secrets in compose files (use env vars sourced from `~/jarvis/.secrets`)
-4. `0.0.0.0` port binds on any machine except Gateway
+4. `0.0.0.0` port binds on any machine except Gateway's public edge
 5. Kubernetes manifests or Helm charts — scope is plain Compose only
-6. Running stateful services on Macs (they belong on Unraid)
-7. Running Ollama in Docker (breaks Metal GPU access — see §Exceptions)
+6. Running stateful services on Macs (they belong on Unraid per ADR-0002)
+7. Running Ollama in Docker (breaks Metal GPU access — see §9.8)
 8. `--privileged` containers (security footgun)
-9. `network_mode: host` without an ADR justifying it
+9. `network_mode: host` without an ADR
 10. Pulling images from unofficial registries without an ADR
 
+### 15.2 Multi-writer / commits **[NEW per ADR-0005]**
+
+11. Direct push to `main` from an agent (Claude Code, forge pipeline, GitHub Actions). Use branch + PR
+12. `Co-Authored-By: <agent>` trailer for AI agent attribution. Use `AI-Agent:` instead
+13. Hand-editing a generated commit script (look for `# GENERATED FROM jarvis-standards` header). Edit the template, re-propagate
+14. Committing without `X-Machine` trailer (CI status check rejects it)
+15. Branching outside the namespace conventions in §4.3 — agents on `feature/*` or humans on `claude-code/*`
+16. Bypassing branch protection rules via "skip checks" (defeat-in-depth violation)
+
+### 15.3 Sandbox-specific
+
+17. `~/jarvis/.secrets` on Sandbox — Sandbox uses `~/.secrets` (no jarvis subdir). Path difference is documented in §11.1
+18. Hardcoded `100.124.172.14` (old Sandbox IP) anywhere — magic DNS `${SANDBOX_HOST}` only **[NEW from drift sweep]**
+19. Hardcoded `jarvis-forge` machine hostname — current is `jarvis-sandbox` **[NEW from 2026-04-28 migration]**
+
 ---
 
-## Observability
+## 16. Observability
 
-Services emit structured logs per `LOGGING.md`. Container stdout is captured by Docker's json-file driver (bounded by the logging anchor above). Promtail on each Mac ships logs to Loki on Unraid. See `docs/OBSERVABILITY.md` (planned) for the full stack.
+Services emit structured logs per `LOGGING.md`. Container stdout is captured by Docker's json-file driver (bounded by the logging anchor in §9.7). Promtail on each Mac ships logs to Loki on Unraid. See `docs/OBSERVABILITY.md` (planned) for the full stack.
+
+JSON log schema (every service):
+```
+{"timestamp": "...", "level": "...", "service": "...", "node": "...", "message": "..."}
+```
+
+No bare `echo` or `print` in production scripts — always structured JSON.
 
 ---
 
-## Related standards
+## 17. Related standards
 
-- `ADR-0001` — Adopt Docker for service deployment (the decision behind this doc)
+- `ADR-0001` — Adopt Docker for service deployment
+- `ADR-0002` — State native, compute containerized
+- `ADR-0003` — Progressive secrets management
+- `ADR-0004` — Alpha-5 execution standards
+- `ADR-0005` — Adopt multi-writer coordination model **[implemented in §4-§8 of this doc]**
+- `DEVELOPMENT_PROCESS.md` — Sovereignty First principle, Cross-Repo Consistency rules
 - `LOGGING.md` — structured logging via `get_logger()`
-- `SECURITY.md` (planned) — `get_secret()` pattern + no hardcoded IPs rule (this doc implements that)
-- `OBSERVABILITY.md` (planned) — full Prom/Loki/Tempo/Grafana stack
-- `BACKUP.md` (planned) — backup schedule + retention
+- `SECURITY.md` (planned) — secrets rotation, access controls
+- `OBSERVABILITY.md` (planned) — Prom / Loki / Tempo / Grafana stack
+- `BACKUP.md` (planned) — schedule + retention
 
 ---
 
-## Amendment
+## 18. Amendment
 
 Changes to this standard require:
+
 1. Update this doc
 2. Update the "Last reviewed" date
 3. If the change affects a live decision, update or supersede the relevant ADR
-4. Commit via `jarvisstandards_commit.sh`
-5. Next JARVIS session opens with "new deployment standard in effect"
+4. Branch and PR per ADR-0005 §4.3 (`feature/<topic>` for human, `claude-code/<purpose>/<topic>` for agent)
+5. Merge after review
+6. Next JARVIS session opens with "new deployment standard in effect"
+
+Operational changes (e.g. a new repo joining the trait map, a node IP changing) are amendments. Architectural changes (e.g. moving Postgres back to Macs) require a new ADR that supersedes the relevant prior ADR — this doc gets updated as a consequence, not as the driver.
 
 ---
 
