@@ -73,3 +73,36 @@ Every generated file starts with:
 ```
 
 This header is how `propagate_scripts.sh` detects whether a target file is safe to overwrite.
+
+## Template file structure
+
+Every `*.template.sh` file in `_templates/` MUST follow this structure for the propagation engine to strip the meta-block correctly:
+
+```bash
+#!/usr/bin/env bash
+# TEMPLATE FILE — <short description, can use @@VAR@@>
+# Source of truth: jarvis-standards/scripts/_templates/<filename>
+# Propagated to:   @@REPO_PATH@@/scripts/<consumer-path>
+#
+# <docstring starts here — preserved in generated output>
+# <multi-line docstring is fine, including blank-comment lines like the next one>
+#
+# <more docstring>
+
+set -euo pipefail
+# ... actual bash code ...
+```
+
+The engine strips exactly 5 lines from the top of every template before substitution:
+
+1. The `#!/usr/bin/env bash` shebang (we provide our own with the GENERATED header)
+2. The `# TEMPLATE FILE — ...` marker line
+3. `# Source of truth: ...` meta line
+4. `# Propagated to:   ...` meta line
+5. `#` (empty comment separator line)
+
+Everything below those 5 lines is treated as docstring/code and preserved in the generated output. `@@VAR@@` placeholders in the preserved content are substituted per `propagate.config`.
+
+**Why count-based stripping (not blank-line-based)?**
+
+Earlier versions of the engine stripped "from `# TEMPLATE FILE` until the first blank line." This silently broke when a template's docstring had no blank line between the meta-block and the first comment line — the engine would keep stripping comment lines until it hit `set -euo pipefail`, deleting the entire docstring. Caught during family pilot adoption (Session #10) when `check_sync.sh` propagated without its newly-rewritten docstring. Fixed in PR #8 with explicit count-based stripping.
