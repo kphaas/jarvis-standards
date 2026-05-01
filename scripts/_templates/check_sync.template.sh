@@ -3,24 +3,41 @@
 # Source of truth: jarvis-standards/scripts/_templates/check_sync.template.sh
 # Propagated to:   @@REPO_PATH@@/scripts/check_sync.sh
 #
-# Pre-flight validator for Sandbox commit flow.
-# Guards hostname, repo identity, origin remote, and HEAD vs origin/@@MAIN_BRANCH@@.
-# Usage: check_sync.sh [--pre-commit]
-#   --pre-commit  Skip dirty-tree check (commit script legitimately has dirty tree)
-
-# check_sandbox_sync.sh — validate Sandbox @@REPO_NAME@@ state before a Claude Code session.
+# check_sync.sh — pre-commit drift validator for B-trait JARVIS repos.
 #
-# DEBT-026 remediation. Runs on Sandbox (jarvis-forge) at the start of every Claude Code
-# session. Read-only: makes no changes to the repo. Fast (< 5s). Exits 0 on clean sync,
-# exits 1 with a loud banner on any drift, dirt, or network issue.
+# Invoked by commit_core's Step 1 pre-flight on Sandbox. Verifies that
+# the writer's local repo state is clean and synced with origin/@@MAIN_BRANCH@@
+# before any commit lands. Read-only; <5s.
+#
+# Why Sandbox-specific (current scope):
+#   Of the 5 JARVIS machines (Air, Brain, Gateway, Endpoint, Sandbox),
+#   only Air and Sandbox commit. Air commits are gated by Cursor and a
+#   human; no automated drift check needed. Brain/Gateway/Endpoint pull
+#   commits but never make them. Sandbox is the only machine where a
+#   drift check before automated commit is structurally meaningful.
+#
+#   If a future maintenance workflow needs Brain/Gateway/Endpoint to
+#   commit, broaden the hostname guard via ADR amendment — do not
+#   quietly expand it here.
+#
+# Modes:
+#   default       Session-start mode: tree must be clean.
+#   --pre-commit  Pre-commit mode: skips dirty-tree check (commit_core
+#                 legitimately has a dirty tree at this point).
 #
 # Guarantees:
-#   - Only runs on Sandbox (hostname contains jarvis-forge)
-#   - Only runs from inside the @@REPO_NAME@@ repo
-#   - Fails loudly on: uncommitted/untracked files, behind/ahead/diverged from origin/@@MAIN_BRANCH@@,
-#     network failure, missing origin remote, not-a-repo
+#   - Verifies hostname is Sandbox (jarvis-sandbox or legacy jarvis-forge)
+#   - Verifies repo identity (right repo at @@REPO_PATH@@, right origin)
+#   - Verifies HEAD vs origin/@@MAIN_BRANCH@@ (no drift)
+#   - Verifies network reachability to origin
+#   - Fails loudly on: uncommitted/untracked files, behind/ahead/diverged
+#     from origin/@@MAIN_BRANCH@@, network failure, missing origin remote,
+#     not-a-repo
 #
 # Compatible with bash 3.2 (macOS default) and bash 5.x.
+#
+# Implements ADR-0005 §6.2 (B-trait branch-safety) for Sandbox writers.
+# Supersedes: DEBT-026 (Sandbox-specific remediation).
 
 set -euo pipefail
 
@@ -84,11 +101,11 @@ fail_banner() {
 # ---------- 1. Hostname guard (Sandbox only) ----------
 HOSTNAME_RAW="$(hostname)"
 case "$HOSTNAME_RAW" in
-    *jarvis-forge*) ;;
+    *jarvis-sandbox*|*jarvis-forge*) ;;
     *)
         fail_banner \
             "not running on Sandbox (hostname: ${HOSTNAME_RAW})" \
-            "This script must only run on Sandbox (hostname contains 'jarvis-forge')." \
+            "This script must only run on Sandbox (hostname contains 'jarvis-sandbox' or 'jarvis-forge')." \
             "SSH to Sandbox and run from there: ssh jarvissand@100.124.172.14"
         ;;
 esac
