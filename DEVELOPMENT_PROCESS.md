@@ -26,7 +26,50 @@ Every tool and workflow is classified by dependency:
 
 **Rule:** Tier 4 dependencies require explicit architectural review before adoption. Today only GitHub itself is Tier 4; self-hosted Gitea on Brain is a planned mitigation.
 
----
+## Discovery-first protocol
+
+JARVIS work is non-trivially expensive when based on stale assumptions. Before acting on a previous session's claims, verify them against current state.
+
+### The rule
+
+Verify state before acting on any claim that says:
+
+- "X is missing / broken / not yet built"
+- "Y is currently doing Z"
+- "The last session left things in state W"
+
+These claims rot fast. A handoff written at 6pm Friday can be wrong by 10pm Friday if work continued. Stale handoffs cost more than fresh discovery.
+
+### Pattern — first action of every resuming session
+
+1. **Working tree clean?** `git status --short`
+2. **Up to date with origin?** `git fetch --prune && git status -uno`
+3. **Claimed-missing files exist?** `ls -la <path>`
+4. **Claimed-broken processes actually broken?** Verify with `ps -o etime`, log mtimes, and wall-clock vs scheduled fire times. `launchctl exit 0` plus 23h uptime plus stale stderr does NOT equal a crash loop.
+5. **Branches the handoff mentioned still exist?** `git branch --all && git log --all --oneline -20`
+
+Only after this read-only discovery — act.
+
+### Anti-patterns
+
+- Writing code based on a handoff without re-verifying the gap exists
+- Assuming a process is dead because of stale logs (file-handle loss after newsyslog rotation can freeze logs of a perfectly healthy process)
+- Concluding "crash loop" from `launchctl exit` code alone — verify uptime and recent activity first
+- Building a fix for a problem already fixed in a follow-up commit
+
+### Stale-handoff lesson (2026-05-01)
+
+A jarvis-council session-1 handoff stated `commit_core.template.sh` was missing in `jarvis-standards/scripts/_templates/`. Reality: PR #4 merged the file 4 hours after the handoff was written. Acting on the stale claim would have caused a duplicate-file collision. The verification audit at session start caught it. Rule formalized.
+
+### Stale-log discipline
+
+When a process is healthy but its logs look stale (typically due to file-handle loss after rotation), rename the misleading log so future readers do not mistake it for evidence of process state:
+
+```bash
+mv service.log service.log.YYYYMMDD-stale
+```
+
+The `-stale` suffix is the convention. Future readers see it and know not to trust the file mtime.
 
 ## Development Flows
 
