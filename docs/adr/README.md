@@ -31,6 +31,7 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | # | Title | Status | Date |
 |---|---|---|---|
 | [0001](./ADR-0001-adopt-docker-deployment.md) | Adopt Docker for service deployment | Accepted | 2026-04-19 |
+| [0006](./ADR-0006-orbstack-default-container-runtime.md) | OrbStack as default container runtime | Accepted | 2026-05-02 |
 
 ## Template
 
