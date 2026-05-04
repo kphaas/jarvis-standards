@@ -10,15 +10,36 @@ server side.
 | Hook | TD | Enforces |
 |---|---|---|
 | `commit-msg` | TD-X22 | §15.2 #12 — strip the Cursor agent's `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer so AI attribution flows through `AI-Agent` / `AI-Model` only |
-| `pre-commit` | TD-X25 | §15.2 #11 — block direct commits to `main` / `master`; agents must work on a `claude-code/*` (or `feature/*` for humans) branch |
+| `pre-commit` (main block) | TD-X25 | §15.2 #11 — block direct commits to `main` / `master` |
+| `pre-commit` (namespace) | TD-X24 | §15.2 #15 — branch namespace per ADR-0005 §4.3 (lines 84-93). Asymmetric: agents on `feature/*` are rejected; humans on `claude-code/*` / `cursor/*` / `copilot/*` get a stderr warning + audit log entry but the commit proceeds (emergency override path) |
 
 `commit-msg` is non-blocking by design (always exits 0) — it cleans the
 message and writes a best-effort audit line to `~/.jarvis/trailer_strips.log`.
 The strip pattern is anchored to the exact Cursor agent line and does NOT
 touch legitimate human `Co-authored-by` trailers.
 
-`pre-commit` exits 1 on `main` / `master` and 0 elsewhere. Detached HEAD is
-treated as 0 so rebase / cherry-pick work normally.
+`pre-commit` exits 1 on `main` / `master`, exits 1 on agent identity
+committing to `feature/*`, exits 0 (with a stderr warning + audit log) on
+human identity committing to an agent namespace, and exits 0 silently
+otherwise. Detached HEAD is allowed (rebase / cherry-pick path).
+
+### Identity detection
+
+`pre-commit` reads `JARVIS_AGENT` (`human` | `claude-code` | `cursor` |
+`copilot`) first; if unset, it falls back to a hostname check:
+
+| Hostname matches | Identity |
+|---|---|
+| `*sandbox*` / `*jarvis-sandbox*` | `claude-code` |
+| `*macbook*` / `*air*` | `human` |
+| anything else | `unknown` (treated as human) |
+
+Override the hostname for testing via `HOOK_HOSTNAME_OVERRIDE`. To run a
+human commit through an agent shell, set `JARVIS_AGENT=human` for that
+single command.
+
+Audit logs land in `~/.jarvis/namespace_violations.log` (rejections and
+warnings, tab-separated). Best-effort — log failure never blocks a commit.
 
 ## Install
 
