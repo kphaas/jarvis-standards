@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# JARVIS pre-commit hook — TD-X25
+# Enforces DEPLOYMENT.md §15.2 #11: agents must not commit directly to main.
+#
+# Blocks any commit on main / master. Detached HEAD is allowed — that path
+# is used during rebase and cherry-pick where blocking would corrupt the
+# operation. The remote-side defense is GitHub branch protection per
+# ADR-0005 Layer 1.
+
+set -u
+
+branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+
+# Detached HEAD: symbolic-ref fails, branch is empty. Allow.
+[ -z "${branch}" ] && exit 0
+
+case "${branch}" in
+  main|master)
+    cat >&2 <<'ERR'
+✗ pre-commit: direct commits to main are forbidden per ADR-0005 §15.2 #11.
+
+Create a branch first:
+    git checkout -b claude-code/<descriptor>     # for Claude Code
+    git checkout -b feature/<descriptor>         # for human work
+
+If this is an emergency hotfix and you've decided to override, run with
+    git commit --no-verify
+and own the deviation.
+ERR
+    exit 1
+    ;;
+esac
+
+exit 0
