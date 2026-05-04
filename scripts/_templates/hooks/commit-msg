@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# JARVIS commit-msg hook — TD-X22
+# Enforces DEPLOYMENT.md §15.2 #12: do not use Co-Authored-By for agent attribution.
+#
+# Strips the Cursor agent's auto-injected attribution line. Pattern is
+# anchored to a single exact form and does NOT match human Co-authored-by
+# trailers, so legitimate co-authorship is preserved.
+#
+# Idempotent. Always exits 0 — never blocks the commit.
+
+set -u
+
+msg_file="${1:-}"
+[ -n "${msg_file}" ] || exit 0
+[ -f "${msg_file}" ] || exit 0
+
+# Anchored full-line match: ^Co-authored-by: Cursor <cursoragent@cursor.com>$
+# Using POSIX BRE (sed -E disabled to avoid platform variance); the literal
+# dot in the email is escaped.
+sed -i.bak '/^Co-authored-by: Cursor <cursoragent@cursor\.com>$/d' "${msg_file}"
+rm -f "${msg_file}.bak"
+
+# Best-effort audit log. Never let logging failure block the commit.
+{
+  log_dir="${HOME}/.jarvis"
+  log_file="${log_dir}/trailer_strips.log"
+  mkdir -p "${log_dir}" 2>/dev/null || exit 0
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  repo="$(git rev-parse --show-toplevel 2>/dev/null || echo unknown)"
+  subject="$(head -n1 "${msg_file}" 2>/dev/null || echo '')"
+  printf '%s\t%s\t%s\n' "${ts}" "${repo}" "${subject}" >> "${log_file}" 2>/dev/null || true
+} || true
+
+exit 0

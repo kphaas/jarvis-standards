@@ -978,6 +978,28 @@ Pre-Alpha-5 (today): Postgres still runs natively on Brain, not in a container. 
 15. Branching outside the namespace conventions in §4.3 — agents on `feature/*` or humans on `claude-code/*`
 16. Bypassing branch protection rules via "skip checks" (defeat-in-depth violation)
 
+### 15.2.1 Enforcement mechanisms
+
+§15.2 is enforced at the local-commit boundary by two git hooks shipped from
+`scripts/_templates/hooks/` in this repo, complementing the server-side
+GitHub branch protection (Layer 1 in ADR-0005). The local hooks catch
+violations before they reach a remote and are deliberately layered with the
+server-side checks — neither is sufficient alone.
+
+| Mechanism | Source | Enforces |
+|---|---|---|
+| `commit-msg` hook (TD-X22) | `scripts/_templates/hooks/commit-msg` | §15.2 #12 — strips the Cursor agent's `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer; non-blocking; pattern is anchored and does not affect human Co-authored-by lines |
+| `pre-commit` hook (TD-X25) | `scripts/_templates/hooks/pre-commit` | §15.2 #11 — blocks any commit whose `HEAD` is `main` or `master`; allows detached HEAD so rebase / cherry-pick keep working |
+| `scripts/install_hooks.sh` | `scripts/install_hooks.sh` | Bootstrap: copies both hooks into a target repo's `.git/hooks/`, prompts on conflict (override with `--force`) |
+
+**Known gap.** Git stores hooks under `.git/hooks/`, which is outside the
+working tree and **not tracked by the repo**. Every fresh clone starts with
+no hooks installed, and propagation from outside the clone (e.g.
+`propagate_scripts.sh`) cannot fix this — the bootstrap step
+(`install_hooks.sh`) must run inside each clone. Operationally: any new
+clone of a JARVIS repo on Sandbox or Air must be followed by
+`/path/to/jarvis-standards/scripts/install_hooks.sh` before the first commit.
+
 ### 15.3 Sandbox-specific
 
 17. `~/jarvis/.secrets` on Sandbox — Sandbox uses `~/.secrets` (no jarvis subdir). Path difference is documented in §11.1
