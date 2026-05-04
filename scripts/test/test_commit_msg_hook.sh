@@ -118,9 +118,9 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# pre-commit tests (TD-X25)
+# pre-commit tests (TD-X25 main/master block + TD-X24 namespace)
 # ----------------------------------------------------------------------------
-printf '\npre-commit hook (TD-X25)\n'
+printf '\npre-commit hook (TD-X25 main block + TD-X24 namespace)\n'
 
 # Build a fresh repo so we can switch branches cleanly.
 pcrepo="${scratch}/pcrepo"
@@ -128,51 +128,104 @@ git init -q "${pcrepo}"
 git -C "${pcrepo}" -c user.email=t@t -c user.name=t commit --allow-empty -q -m initial
 git -C "${pcrepo}" branch -M main
 
-# Helper: run the hook with HEAD pointed at a given branch, capture exit code.
-run_on_branch() {
+# Run the hook with explicit identity + branch. Returns exit code; stderr
+# captured to a per-call file we can inspect for warnings.
+# Args: branch, JARVIS_AGENT (empty for default), HOOK_HOSTNAME_OVERRIDE (empty for default)
+last_stderr=""
+run_hook() {
   local branch="$1"
-  ( cd "${pcrepo}" && git checkout -q "${branch}" 2>/dev/null && "${pre_commit_hook}" )
+  local agent="$2"
+  local host_override="$3"
+  ( cd "${pcrepo}" && git checkout -q "${branch}" 2>/dev/null )
+  last_stderr="${scratch}/stderr.$$.${RANDOM}"
+  (
+    cd "${pcrepo}"
+    if [ -n "${agent}" ]; then export JARVIS_AGENT="${agent}"; else unset JARVIS_AGENT; fi
+    if [ -n "${host_override}" ]; then export HOOK_HOSTNAME_OVERRIDE="${host_override}"; else unset HOOK_HOSTNAME_OVERRIDE; fi
+    "${pre_commit_hook}"
+  ) 2>"${last_stderr}"
 }
 
-# Case A: main → blocked.
-if run_on_branch main >/dev/null 2>&1; then
-  bad "Branch main blocked (exit 1)" "hook exited 0"
-else
-  ok "Branch main blocked (exit 1)"
-fi
+assert_exit() {
+  local desc="$1" expected="$2" actual="$3"
+  if [ "${actual}" -eq "${expected}" ]; then
+    ok "${desc}"
+  else
+    bad "${desc}" "expected exit ${expected}, got ${actual}; stderr: $(cat "${last_stderr}" 2>/dev/null)"
+  fi
+}
 
-# Case B: master → blocked.
+assert_stderr_has() {
+  local desc="$1" needle="$2"
+  if grep -q "${needle}" "${last_stderr}" 2>/dev/null; then
+    ok "${desc}"
+  else
+    bad "${desc}" "expected stderr to contain '${needle}', got: $(cat "${last_stderr}" 2>/dev/null)"
+  fi
+}
+
+# --- TD-X25 main/master block (regression) ---
+run_hook main "human" "macbook-air"; assert_exit "main blocked (exit 1)" 1 $?
 git -C "${pcrepo}" branch master main
-if run_on_branch master >/dev/null 2>&1; then
-  bad "Branch master blocked (exit 1)" "hook exited 0"
-else
-  ok "Branch master blocked (exit 1)"
-fi
+run_hook master "human" "macbook-air"; assert_exit "master blocked (exit 1)" 1 $?
 
-# Case C: feature/foo → allowed.
-git -C "${pcrepo}" checkout -q -b feature/foo
-if run_on_branch feature/foo >/dev/null 2>&1; then
-  ok "Branch feature/foo allowed (exit 0)"
-else
-  bad "Branch feature/foo allowed (exit 0)" "hook exited non-zero"
-fi
-
-# Case D: claude-code/bar → allowed.
-git -C "${pcrepo}" checkout -q -b claude-code/bar
-if run_on_branch claude-code/bar >/dev/null 2>&1; then
-  ok "Branch claude-code/bar allowed (exit 0)"
-else
-  bad "Branch claude-code/bar allowed (exit 0)" "hook exited non-zero"
-fi
-
-# Case E: detached HEAD → allowed.
+# --- detached HEAD allowed (regression) ---
+git -C "${pcrepo}" checkout -q -b dummy-for-detach
 sha="$(git -C "${pcrepo}" rev-parse HEAD)"
 git -C "${pcrepo}" checkout -q --detach "${sha}"
-if ( cd "${pcrepo}" && "${pre_commit_hook}" ) >/dev/null 2>&1; then
-  ok "Detached HEAD allowed (exit 0)"
-else
-  bad "Detached HEAD allowed (exit 0)" "hook exited non-zero"
-fi
+last_stderr="${scratch}/stderr.detached"
+( cd "${pcrepo}" && "${pre_commit_hook}" ) 2>"${last_stderr}"; rc=$?
+assert_exit "detached HEAD allowed (exit 0)" 0 "${rc}"
+git -C "${pcrepo}" branch -D dummy-for-detach 2>/dev/null || true
+
+# Ensure each run starts on a known branch so checkout in run_hook can switch.
+git -C "${pcrepo}" checkout -q main 2>/dev/null
+
+# Pre-create branches we'll cycle through.
+for b in feature/foo claude-code/foo cursor/foo copilot/foo; do
+  git -C "${pcrepo}" branch "${b}" main 2>/dev/null || true
+done
+
+# --- TD-X24 namespace cases ---
+
+# claude-code agent on feature/* → REJECT
+run_hook feature/foo "claude-code" ""; assert_exit "claude-code on feature/foo → reject" 1 $?
+assert_stderr_has "  …error mentions namespace + identity" "reserved for human"
+
+# claude-code agent on claude-code/* → silent allow
+run_hook claude-code/foo "claude-code" ""; assert_exit "claude-code on claude-code/foo → allow" 0 $?
+
+# human on feature/* → silent allow
+run_hook feature/foo "human" ""; assert_exit "human on feature/foo → allow" 0 $?
+
+# human on claude-code/* → warn + allow
+run_hook claude-code/foo "human" ""; assert_exit "human on claude-code/foo → allow with warning" 0 $?
+assert_stderr_has "  …stderr carries the override warning" "agent namespace"
+
+# cursor agent on feature/* → REJECT
+run_hook feature/foo "cursor" ""; assert_exit "cursor on feature/foo → reject" 1 $?
+
+# cursor agent on cursor/* → allow
+run_hook cursor/foo "cursor" ""; assert_exit "cursor on cursor/foo → allow" 0 $?
+
+# copilot agent on feature/* → REJECT
+run_hook feature/foo "copilot" ""; assert_exit "copilot on feature/foo → reject" 1 $?
+
+# copilot agent on copilot/* → allow
+run_hook copilot/foo "copilot" ""; assert_exit "copilot on copilot/foo → allow" 0 $?
+
+# Hostname-fallback: no JARVIS_AGENT, hostname=jarvis-sandbox → claude-code identity → reject feature/*
+run_hook feature/foo "" "jarvis-sandbox"; assert_exit "host=jarvis-sandbox + feature/foo → reject" 1 $?
+
+# Hostname-fallback: no JARVIS_AGENT, hostname=macbook-air → human → allow feature/*
+run_hook feature/foo "" "macbook-air"; assert_exit "host=macbook-air + feature/foo → allow" 0 $?
+
+# Unknown identity (unrecognized hostname, no env) → treated as human, allowed on feature/*
+run_hook feature/foo "" "some-random-host"; assert_exit "unknown identity + feature/foo → allow" 0 $?
+
+# Other namespaces (fix/*, chore/*) are unrestricted regardless of identity.
+git -C "${pcrepo}" branch chore/foo main 2>/dev/null || true
+run_hook chore/foo "claude-code" ""; assert_exit "claude-code on chore/foo → allow (unrestricted ns)" 0 $?
 
 # ----------------------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"

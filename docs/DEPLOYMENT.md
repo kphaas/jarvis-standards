@@ -989,7 +989,10 @@ server-side checks — neither is sufficient alone.
 | Mechanism | Source | Enforces |
 |---|---|---|
 | `commit-msg` hook (TD-X22) | `scripts/_templates/hooks/commit-msg` | §15.2 #12 — strips the Cursor agent's `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer; non-blocking; pattern is anchored and does not affect human Co-authored-by lines |
-| `pre-commit` hook (TD-X25) | `scripts/_templates/hooks/pre-commit` | §15.2 #11 — blocks any commit whose `HEAD` is `main` or `master`; allows detached HEAD so rebase / cherry-pick keep working |
+| `pre-commit` hook — main block (TD-X25) | `scripts/_templates/hooks/pre-commit` | §15.2 #11 — blocks any commit whose `HEAD` is `main` or `master`; allows detached HEAD so rebase / cherry-pick keep working |
+| `pre-commit` hook — namespace (TD-X24) | `scripts/_templates/hooks/pre-commit` (extended) | §15.2 #15 — agents on `feature/*` are rejected (exit 1); humans on agent namespaces (`claude-code/*` / `cursor/*` / `copilot/*`) get a stderr warning + audit log entry but the commit proceeds. Asymmetric on purpose: humans get the override hatch, agents do not. |
+| PR-base staleness check (TD-X23) | `scripts/_templates/workflows/pr-base-staleness.yml` | §15.2 #11 indirect — a stale PR base reflects abandoned work whose merge into `main` carries silent-conflict + lost-context risk. Posts an idempotent comment ≥14 days, fails the required check ≥30 days. |
+| `scripts/sync_check.sh` | `scripts/sync_check.sh` | Optional read-only inspector. Reports per-repo branch / dirty state / `main` ahead-or-behind / branch base age; exit 1 if anything needs attention so it can chain into shell aliases. No fetch, no mutation. |
 | `scripts/install_hooks.sh` | `scripts/install_hooks.sh` | Bootstrap: copies both hooks into a target repo's `.git/hooks/`, prompts on conflict (override with `--force`) |
 
 **Known gap.** Git stores hooks under `.git/hooks/`, which is outside the
@@ -999,6 +1002,49 @@ no hooks installed, and propagation from outside the clone (e.g.
 (`install_hooks.sh`) must run inside each clone. Operationally: any new
 clone of a JARVIS repo on Sandbox or Air must be followed by
 `/path/to/jarvis-standards/scripts/install_hooks.sh` before the first commit.
+
+The PR-base staleness workflow is propagated by copying
+`scripts/_templates/workflows/pr-base-staleness.yml` into each consuming
+repo's `.github/workflows/`. Phase B3 will land that copy across the 6
+target repos; today only `jarvis-standards` itself runs the workflow.
+
+### 15.2.2 Identity detection
+
+The TD-X24 namespace enforcement reads identity to decide whether to
+reject, warn, or allow a commit on the current branch.
+
+**Source of identity (in precedence order):**
+
+1. `$JARVIS_AGENT` env var, when set to one of:
+   - `human` — Ken or another person at the keyboard
+   - `claude-code` — Claude Code CLI
+   - `cursor` — Cursor IDE / Composer (reserved; recognized even though
+     not currently emitted by Cursor itself)
+   - `copilot` — GitHub Copilot Cloud Agent (reserved)
+2. Hostname-based fallback (when env var is unset):
+
+   | Hostname matches | Identity |
+   |---|---|
+   | `*sandbox*` / `*jarvis-sandbox*` | `claude-code` |
+   | `*macbook*` / `*air*` | `human` |
+   | anything else | `unknown` (treated as human) |
+
+`HOOK_HOSTNAME_OVERRIDE` overrides the hostname for tests.
+
+**Emergency human override on Sandbox.** Sandbox defaults to `claude-code`,
+so a human running a hand commit on Sandbox in a `claude-code/*` branch is
+fine, but a human committing on a `feature/*` branch from a Sandbox shell
+will be rejected — the hook can't distinguish a human at the keyboard from
+an agent invocation. Override for that command:
+
+```
+JARVIS_AGENT=human git commit -m '…'
+```
+
+The warning path (human on `claude-code/*` etc.) is the inverse case: an
+operator working a hot fix in an agent's namespace. The hook does not
+block — stderr gets a one-line warning and `~/.jarvis/namespace_violations.log`
+gets a tab-separated audit row (`timestamp \t repo \t branch \t identity \t action`).
 
 ### 15.3 Sandbox-specific
 
