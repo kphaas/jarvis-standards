@@ -10,7 +10,7 @@ rather than the local-commit side handled by `_templates/hooks/`.
 | File | TD | Purpose |
 |---|---|---|
 | `pr-base-staleness.yml` | TD-X23 | Check the PR's merge-base age vs the target branch. Posts an idempotent comment when the base is ≥14 days old; fails the required check when it's ≥30 days. Catches PRs that have rotted (silent merge conflicts, lost context). |
-| `ci.yml` | TD-X29 | Uniform per-repo CI: lint (ruff), typecheck (mypy), test (pytest), secret-scan (detect-secrets baseline audit). Each Python job gracefully skips when its config is absent. The aggregator job `ci-pass` is the single required-status-check name configured in branch protection. |
+| `ci.yml` | TD-X29 + TD-X32 | Uniform per-repo CI: lint (ruff), typecheck (mypy), test (pytest), secret-scan (detect-secrets baseline audit). Each Python job gracefully skips when its config is absent. The aggregator job `ci-pass` is the single required-status-check name configured in branch protection. **Workspace-aware sync (TD-X32):** test + typecheck detect `[tool.uv.workspace]` in the root `pyproject.toml` and pass `--all-packages` to `uv sync` so workspace siblings install; both jobs also pass `--group dev` so PEP 735 dev-group entries (e.g. `pytest`) are pulled in. Repos with no root `pyproject.toml` skip test + typecheck entirely. Lint is unaffected — `uv tool run ruff` operates on the filesystem and does not need a synced env. |
 
 ## Propagation
 
