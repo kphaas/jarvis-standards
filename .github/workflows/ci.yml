@@ -1,4 +1,5 @@
-# JARVIS uniform CI workflow — TD-X29 (TD-X32 workspace-aware sync).
+# JARVIS uniform CI workflow — TD-X29 (TD-X32 workspace-aware sync;
+# TD-X35 dev-group-aware sync).
 #
 # Source of truth: jarvis-standards/scripts/_templates/workflows/ci.yml.
 # Phase 3 propagates this into each consuming repo's .github/workflows/.
@@ -18,20 +19,22 @@
 # nothing matches the glob — so a no-pyproject-toml repo would fail
 # during setup before our gate had a chance to skip it.
 #
-# Workspace awareness (TD-X32):
+# Workspace + dev-group awareness (TD-X32 + TD-X35):
 # JARVIS repos use `uv` workspaces. The naive `uv sync --all-extras` only
 # resolves the root package — workspace siblings (e.g. jarvis-financial's
 # packages/core, packages/risk, packages/contracts; jarvis-alpha's brain/
 # + gateway/) stay un-synced and downstream `import` calls fail with
 # `ModuleNotFoundError`. Phase 3 propagation surfaced this on financial,
 # alpha, family. test + typecheck jobs detect `[tool.uv.workspace]` in
-# the root `pyproject.toml` and add `--all-packages` when present;
-# `--group dev` is also added so test runners (pytest, etc.) declared as
-# PEP 735 dependency-groups install during the sync. Repos with no root
-# `pyproject.toml` skip test + typecheck entirely (covers the
-# alpha-without-workspace-root case until alpha adopts a workspace
-# root). The lint job is unaffected because `uv tool run ruff` operates
-# on the filesystem and doesn't need a synced env.
+# the root `pyproject.toml` and add `--all-packages` when present.
+# `--group dev` (TD-X35) is added only when `pyproject.toml` declares
+# either `[dependency-groups]` (PEP 735) or `[tool.uv.dev-dependencies]`
+# (legacy uv); without the guard, repos that put pytest in
+# `[project.optional-dependencies]` (e.g. financial) fail with `Group
+# `dev` is not defined`. Repos with no root `pyproject.toml` skip test +
+# typecheck entirely (covers the alpha-without-workspace-root case until
+# alpha adopts a workspace root). The lint job is unaffected because `uv
+# tool run ruff` operates on the filesystem and doesn't need a synced env.
 
 name: ci
 
@@ -121,21 +124,31 @@ jobs:
             **/pyproject.toml
             **/uv.lock
 
-      - name: Sync dependencies (workspace-aware, TD-X32)
+      - name: Sync dependencies (workspace + dev-group aware, TD-X32 + TD-X35)
         if: steps.gate.outputs.skip == 'false'
         run: |
-          # Workspace detection: presence of [tool.uv.workspace] in the
-          # root pyproject.toml indicates a uv workspace; in that case
-          # --all-packages is needed so workspace siblings get synced
-          # too. Without it, sibling imports (e.g. jarvis_contracts) fail
-          # at type-check / test time.
+          # Workspace detection (TD-X32): presence of [tool.uv.workspace]
+          # in the root pyproject.toml indicates a uv workspace; in that
+          # case --all-packages is needed so workspace siblings get
+          # synced too. Without it, sibling imports (e.g.
+          # jarvis_contracts) fail at type-check / test time.
           if grep -q '^\[tool\.uv\.workspace\]' pyproject.toml; then
-            echo "uv workspace detected → uv sync --all-packages --all-extras --group dev"
-            uv sync --all-packages --all-extras --group dev
+            WORKSPACE_FLAG="--all-packages"
           else
-            echo "single-package repo → uv sync --all-extras --group dev"
-            uv sync --all-extras --group dev
+            WORKSPACE_FLAG=""
           fi
+          # Dev-group detection (TD-X35): include --group dev only if
+          # pyproject.toml declares either [dependency-groups] (PEP 735)
+          # or [tool.uv.dev-dependencies] (legacy uv form, auto-translated
+          # into a virtual `dev` group). uv errors otherwise with
+          # `Group `dev` is not defined`.
+          if grep -qE '^\[dependency-groups\]|^\[tool\.uv\.dev-dependencies\]' pyproject.toml; then
+            DEV_FLAG="--group dev"
+          else
+            DEV_FLAG=""
+          fi
+          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
+          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
 
       - name: mypy
         if: steps.gate.outputs.skip == 'false'
@@ -175,22 +188,32 @@ jobs:
             **/pyproject.toml
             **/uv.lock
 
-      - name: Sync dependencies (workspace-aware, TD-X32)
+      - name: Sync dependencies (workspace + dev-group aware, TD-X32 + TD-X35)
         if: steps.gate.outputs.skip == 'false'
         run: |
-          # Workspace detection: see the typecheck job for the full
-          # rationale. --all-packages on workspace repos so siblings sync
-          # (covers financial's jarvis_contracts, jarvis_core.* etc).
-          # --group dev so PEP 735 dev-group entries (e.g. pytest) are
-          # installed during the sync, not left to a separate `uv pip
-          # install pytest` step (covers family's pytest-not-found).
+          # Workspace detection (TD-X32): see the typecheck job for the
+          # full rationale. --all-packages on workspace repos so siblings
+          # sync (covers financial's jarvis_contracts, jarvis_core.* etc).
           if grep -q '^\[tool\.uv\.workspace\]' pyproject.toml; then
-            echo "uv workspace detected → uv sync --all-packages --all-extras --group dev"
-            uv sync --all-packages --all-extras --group dev
+            WORKSPACE_FLAG="--all-packages"
           else
-            echo "single-package repo → uv sync --all-extras --group dev"
-            uv sync --all-extras --group dev
+            WORKSPACE_FLAG=""
           fi
+          # Dev-group detection (TD-X35): include --group dev only if
+          # pyproject.toml declares either [dependency-groups] (PEP 735)
+          # or [tool.uv.dev-dependencies] (legacy uv form). Without this
+          # guard, repos that put pytest in [project.optional-dependencies]
+          # (e.g. financial) fail with `Group `dev` is not defined`. With
+          # the guard present, PEP-735-using repos still install pytest
+          # via the dev group during sync (covers family's
+          # pytest-not-found case).
+          if grep -qE '^\[dependency-groups\]|^\[tool\.uv\.dev-dependencies\]' pyproject.toml; then
+            DEV_FLAG="--group dev"
+          else
+            DEV_FLAG=""
+          fi
+          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
+          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
 
       - name: pytest
         if: steps.gate.outputs.skip == 'false'
