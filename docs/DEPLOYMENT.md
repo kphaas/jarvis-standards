@@ -292,6 +292,14 @@ Branch name pattern: claude-code/** | forge/** | bot/**
 | Require linear history | ✓ | Forces rebase-merge or squash-merge; no merge commits |
 | Do not allow bypassing the above settings | ✓ | Rule applies to admins too |
 
+### 6.1.1 Force-push semantics on agent branches **[per ADR-0005 Amendment 2026-05-05]**
+
+The §6.1 ruleset MUST NOT include `non_fast_forward` on agent branch patterns (`claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, `bot/**`). Force-push on these branches is allowed when an open PR is in flight, the rewrite preserves the PR's stated purpose, and PR review still gates the merge into `main`. The `pull_request` rule remains in force, so review is not bypassable.
+
+`main` keeps full force-push prohibition per §6.2 — this carve-out applies to agent branch rulesets only.
+
+The exact ruleset spec every JARVIS repo must adopt is in `docs/policy/RULESET_CANONICAL.md`. Apply it via the rollout runbook (TD-X34 follow-up tool, separate PR).
+
 ### 6.2 Rule 2 — `main` branch invariants
 
 ```
@@ -978,6 +986,8 @@ Pre-Alpha-5 (today): Postgres still runs natively on Brain, not in a container. 
 15. Branching outside the namespace conventions in §4.3 — agents on `feature/*` or humans on `claude-code/*`
 16. Bypassing branch protection rules via "skip checks" (defeat-in-depth violation)
 17. Using owner-bypass on a required CI check for non-emergency reasons. Bypass exists for genuine emergencies (production hotfix, broken CI blocking everything else). Routine bypass — e.g. "the lint job is flaky, just merge" — is a §15.2 violation; fix the check, do not skip it. Bypass usage MUST be logged in the session handoff (§15.2.3 owner-bypass discipline)
+
+**Not a violation:** force-push to an agent branch (`claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, `bot/**`) on an open PR for in-flight rebase-and-fix. See §6.1.1 and ADR-0005 Amendment 2026-05-05. Force-push to `main` (#11 above) and cross-namespace overwrites remain prohibited.
 
 ### 15.2.1 Enforcement mechanisms
 
