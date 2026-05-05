@@ -50,7 +50,7 @@ refs/heads/main
 
 | Rule | Included? | Configuration | Why |
 |---|---|---|---|
-| `pull_request` | ✓ | `required_approving_review_count: 0`, `require_last_push_approval: true`, `dismiss_stale_reviews_on_push: true` | Layer 1 — agent commits cannot reach `main` except via PR. Solo dev: `required_approving_review_count=0`; the owner's own self-approval is the human gate. `require_last_push_approval` prevents silent re-push past approval. |
+| `pull_request` | ✓ | `required_approving_review_count: 0`, `require_last_push_approval: false`, `dismiss_stale_reviews_on_push: true` | Layer 1 — agent commits cannot reach `main` except via PR. Solo dev: `required_approving_review_count=0`; the owner's own self-approval is the human gate. `require_last_push_approval=false` because Ken is both the last pusher and the only authorized approver — set to `true`, every PR is unmergeable. Flip back to `true` if collaborators are added (see §D). `dismiss_stale_reviews_on_push: true` still forces re-review when the diff actually changes. |
 | `required_status_checks` | ✓ | `strict_required_status_checks_policy: false`, `do_not_enforce_on_create: true`, contexts list per repo | Status checks (substrate CI matrix) must pass before merge to `main`. `do_not_enforce_on_create: true` lets the rule survive ruleset (re)creation without spuriously blocking on branches that pre-existed. `strict_required_status_checks_policy: false` permits squash/rebase merges without a re-run round-trip. |
 | `required_linear_history` | ✓ | — | Squash or rebase merge only; no merge commits land on `main`. |
 | `non_fast_forward` | ✓ | — | Force-push to `main` is prohibited (per ADR-0005 §6.1; the §6.1.1 carve-out applies only to agent branches). |
@@ -112,7 +112,7 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
       "type": "pull_request",
       "parameters": {
         "required_approving_review_count": 0,
-        "require_last_push_approval": true,
+        "require_last_push_approval": false,
         "dismiss_stale_reviews_on_push": true,
         "required_review_thread_resolution": false,
         "require_code_owner_review": false
