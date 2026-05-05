@@ -191,6 +191,20 @@ Revisit this ADR if any of the following occur:
 4. **Provenance forensics fails in real incident.** If a commit-attribution question arises in a security or operational incident and `git log --grep` queries cannot resolve it, the trailer scheme is incomplete and must be amended.
 5. **Template propagation friction exceeds bespoke-script cost.** If maintaining the template + propagation engine takes more time than maintaining eight bespoke commit scripts would, re-evaluate.
 
+## Amendments
+
+### 2026-05-05 — Force-push semantics on agent branches (§6.1.1)
+
+**Issue surfaced.** Phase 3 substrate propagation (jarvis-family PR #15) was blocked when the family ruleset's `non_fast_forward` rule on `claude-code/**` rejected a routine rebase-and-fix push on the PR's own branch. Other JARVIS repos (alpha, financial, council, print-copilot, data-sources, standards) lacked the equivalent ruleset and were silently *out of compliance with the literal §6.1 wording*, while inconsistently *aligned with the rule's intent*. The literal wording overshot.
+
+**Carve-out.** The Layer 1 prohibition on force-push targets unreviewed merges to default branches. It does NOT prohibit in-flight history rewrites on the owner's own unmerged feature or agent branches. Specifically: the repo owner MAY force-push to `claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, and `bot/**` branches when (a) the branch has an open PR, (b) the rewrite preserves the PR's stated purpose, and (c) PR review still gates the merge into `main`. Force-pushing to `main`, force-pushing to a branch under another agent's namespace, or using force-push to circumvent PR review remain prohibited.
+
+**Example.** Cursor on Air pushes `claude-code/td-x34-foo` with three commits. CI finds a mypy error. Cursor fixes the error and `git push --force-with-lease` to rewrite the branch tip. This is allowed: the PR is open, the rewrite preserves the PR's purpose (TD-X34), and the PR review will still happen pre-merge. Compare: Cursor force-pushes to `main` to "fix" history — prohibited in all cases. Or: a different agent force-pushes over Claude Code's `claude-code/**` branch — prohibited (cross-namespace overwrite).
+
+**Operational implementation.** The canonical ruleset (see `docs/policy/RULESET_CANONICAL.md`) drops `non_fast_forward` on agent branch patterns while keeping the `pull_request` rule, which still gates merge to `main` on PR review. The `main` branch retains the full Layer 1 protections (`non_fast_forward`, `deletion`, `pull_request` for P-trait repos). This carve-out applies to the agent-branch ruleset only.
+
+**Trade-off accepted.** The implementation grants force-push on agent branches to *any* actor with push access, not only the repo owner — GitHub rulesets cannot scope force-push to a single user without a bypass-actor list, which adds drift risk. Acceptable because (a) only the repo owner has push access to JARVIS repositories today, (b) any agent commit goes through PR before merge regardless. If push access broadens, revisit via ADR amendment.
+
 ## References
 
 - `DEPLOYMENT.md` (this repo) — operational runbook: branch protection settings, commit-script trait switches, propagate.config schema, per-repo adoption procedure
