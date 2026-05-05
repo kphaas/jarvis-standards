@@ -1,7 +1,7 @@
 # Handoff 2026-05-05 — TD-X38 v2 — apply canonical `main` ruleset across JARVIS
 
-**Status:** Open
-**Source:** TD-X34 v2 redesign (this PR — `RULESET_CANONICAL.md` v2)
+**Status:** Complete (rollout executed 2026-05-05)
+**Source:** TD-X34 v2 redesign (PR #24, merged `b7f05b5`)
 **Owner:** Ken
 **Supersedes:** TD-X38 v1 (`backfill required_status_checks on non-substrate rulesets`) — obsolete after v1 rulesets were deleted.
 
@@ -77,8 +77,42 @@ gh api repos/kphaas/<repo>/rulesets --jq '.[] | select(.conditions.ref_name.incl
 
 The `DEPLOYMENT.md` §6.3 quarterly audit query SHOULD be extended to include both checks. That extension is part of this rollout (when applied), not of the spec PR.
 
+## Rollout executed — 2026-05-05
+
+The plan above was executed. Self-test on `jarvis-standards` passed before sweep; sweep applied to the other 7 in two passes (FULL payload to substrate-adopting 5, PARTIAL payload to non-substrate 3). Final state below.
+
+### Self-test results (`jarvis-standards`, ruleset `15996055`)
+
+| Test | Expected | Actual |
+|---|---|---|
+| Push fresh `cursor/test-after-td-x38-rollout-…` branch | accepted | ✓ accepted |
+| `git push --force-with-lease` after `--amend` | accepted | ✓ accepted |
+| `git push origin --delete <test-branch>` | accepted | ✓ accepted |
+| Direct push to `main` (simulated commit-tree) | rejected with `pull_request` + `required_status_checks` violations | ✓ rejected — `GH013: Repository rule violations`, both expected violations present |
+
+Test branch fully cleaned up (local + remote).
+
+### `jarvis-main` ruleset IDs (per repo)
+
+| Repo | Ruleset ID | Payload variant | Rules |
+|---|---|---|---|
+| `jarvis-standards` | `15996055` | FULL | pull_request, required_linear_history, non_fast_forward, deletion, required_status_checks |
+| `jarvis-alpha` | `15996135` | FULL | pull_request, required_linear_history, non_fast_forward, deletion, required_status_checks |
+| `jarvis-council` | `15996136` | FULL | pull_request, required_linear_history, non_fast_forward, deletion, required_status_checks |
+| `jarvis-data-sources` | `15996137` | FULL | pull_request, required_linear_history, non_fast_forward, deletion, required_status_checks |
+| `jarvis-print-copilot` | `15996138` | FULL | pull_request, required_linear_history, non_fast_forward, deletion, required_status_checks |
+| `jarvis-forge` | `15996141` | PARTIAL | pull_request, required_linear_history, non_fast_forward, deletion |
+| `jarvis-financial` | `15996142` | PARTIAL | pull_request, required_linear_history, non_fast_forward, deletion |
+| `jarvis-family` | `15996143` | PARTIAL | pull_request, required_linear_history, non_fast_forward, deletion |
+
+All 8 conformant per `RULESET_CANONICAL.md` §C: `jarvis-main` exists on `refs/heads/main`; **zero** rulesets on agent-branch patterns across all 8 repos.
+
+### Action remaining
+
+When forge / financial / family adopt the substrate CI workflow (TD-X31, TD-X35, family CI scaffold), update their `jarvis-main` ruleset (PUT, IDs above) to add the `required_status_checks` rule per `RULESET_CANONICAL.md` §B. Bake `do_not_enforce_on_create: true` into the payload from the start.
+
 ## Notes
 
 - v1 left no audit trail in `main` history because the v1 PR (#22) was merged, not reverted. v2 revises the spec in place rather than spawning ADR-0005 Amendment v2. The post-mortem is preserved in ADR-0005 Amendment §6.1.1 → "Discovery during rollout" and in this handoff.
-- Family's pre-v1 ruleset (id `15844036`, `non_fast_forward` + `pull_request` only on `claude-code/**`/`forge/**`/`bot/**`) is also gone — it was UPDATED to the v1 no-checks variant, then DELETED with the others. Family currently has only the `main — branch invariants` ruleset (id `15844156`). That ruleset SHOULD be audited against v2 §B and either updated in place or replaced when family's `jarvis-main` ruleset is applied during rollout.
-- `main` branch protection on the other 7 repos is whatever they had prior to TD-X34 v1 (none, in most cases). The rollout per the plan above is the first time most of them get any `main` enforcement.
+- Family now has TWO `main`-targeting rulesets: the older `main — branch invariants (ADR-0005)` (id `15844156`, rules `non_fast_forward` + `required_linear_history`) and the new `jarvis-main` (id `15996143`, rules `pull_request` + `required_linear_history` + `non_fast_forward` + `deletion`). They stack additively — overlap (`non_fast_forward`, `required_linear_history`) is redundant enforcement, not a conflict. Family's older ruleset SHOULD be retired in a follow-up to leave `jarvis-main` as the sole protector, but that consolidation is out of scope for TD-X38 v2.
+- `main` branch protection on the other 7 repos is whatever they had prior to TD-X34 v1 (none, in most cases). The rollout above is the first time most of them got any `main` enforcement.
