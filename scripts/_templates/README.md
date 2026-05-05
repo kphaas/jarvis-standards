@@ -20,8 +20,8 @@ originates here.
 | `workflows/README.md` | docs | Workflow family inventory + propagation notes |
 | `.pre-commit-config.yaml` | pre-commit installer | TD-X28 — pre-commit.com framework config. Copied into consumer repo root by `scripts/install_pre_commit.sh` |
 | `.secrets.baseline` | pre-commit installer | TD-X28 — empty Yelp `detect-secrets` baseline. Seeded by `install_pre_commit.sh` via `detect-secrets scan` against the consumer repo, falls back to this template if scan fails |
-| `sync_daemon.sh` | LaunchAgent installer | TD-X27 — polling sync daemon body. Copied into `<consumer>/scripts/sync_daemon.sh` by `scripts/install_sync_daemon.sh` |
-| `launchagents/com.jarvis.sync_daemon.plist.template` | LaunchAgent installer | TD-X27 — LaunchAgent wrapper. Rendered with `{{HOME}}` substitution and dropped into `~/Library/LaunchAgents/` by `scripts/install_sync_daemon.sh` |
+| `sync_daemon.sh` | LaunchAgent installer | TD-X27 — polling sync daemon body. Staged at `~/.jarvis/sync_daemon.sh` (outside any source repo, per TD-X30) by `scripts/install_sync_daemon.sh` |
+| `launchagents/com.jarvis.sync_daemon.plist.template` | LaunchAgent installer | TD-X27 + TD-X30 — LaunchAgent wrapper. Rendered with `{{HOME}}` and `{{INTERVAL}}` substitutions and dropped into `~/Library/LaunchAgents/` by `scripts/install_sync_daemon.sh`. `{{INTERVAL}}` reads from the caller's `SYNC_DAEMON_INTERVAL` env var (default `300`, positive integer required). |
 
 ## Family conventions
 
@@ -56,11 +56,21 @@ namespace + main-block enforcement firing.
 ### LaunchAgent installer
 
 `scripts/install_sync_daemon.sh` renders the plist template with
-`{{HOME}}` substituted, writes to `~/Library/LaunchAgents/`, then
-`launchctl bootstrap` + `enable` + `kickstart`. `uninstall_sync_daemon.sh`
-is the symmetric `bootout` + plist removal; logs at `~/.jarvis/` are
-preserved so the operator can audit what happened during the daemon's
-runtime.
+`{{HOME}}` and `{{INTERVAL}}` substituted, writes to
+`~/Library/LaunchAgents/`, stages the daemon body at
+`~/.jarvis/sync_daemon.sh`, then `launchctl bootstrap` + `enable` +
+`kickstart`. `SYNC_DAEMON_INTERVAL` configures the polling cadence
+(default 300s, positive integer); `JARVIS_INSTALL_SKIP_LAUNCHCTL=1` is a
+test-only knob that skips the `launchctl` registration steps so the
+installer test can exercise the render + stage path without registering
+a real service.
+
+`uninstall_sync_daemon.sh` is the symmetric `bootout` + plist removal +
+`~/.jarvis/sync_daemon.sh` removal + legacy-copy removal at
+`~/jarvis-standards/scripts/sync_daemon.sh` (where Phase-1 installers
+left a tracked-tree-dirtying copy before TD-X30). Logs at `~/.jarvis/`
+are preserved so the operator can audit what happened during the
+daemon's runtime.
 
 ## Adding a new template
 
