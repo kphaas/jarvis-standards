@@ -271,34 +271,29 @@ git log --grep="^AI-Agent:" --invert-grep --format="%h %ai %s"
 
 Apply this to **every** JARVIS repository. Branch protection is the GitHub-layer enforcement of ADR-0005's Q1 + Q3.
 
-### 6.1 Rule 1 — Agent branches require PR review
+### 6.1 Agent branches — no ruleset (per RULESET_CANONICAL v2)
 
-**Settings → Branches → Add classic branch protection rule** (or use Rulesets — equivalent settings):
+Apply **no** branch protection rule or ruleset to any of the agent-branch patterns:
 
 ```
-Branch name pattern: claude-code/** | forge/** | bot/**
+refs/heads/claude-code/**
+refs/heads/cursor/**
+refs/heads/copilot/**
+refs/heads/forge/**
+refs/heads/bot/**
 ```
 
-| Setting | Value | Why |
-|---|---|---|
-| Require a pull request before merging | ✓ | Q1 — agents must always go through review |
-| Required approvals | 1 | Human-must-approve for agent commits |
-| Dismiss stale pull request approvals when new commits are pushed | ✓ | Force re-review if agent amends |
-| Require review from Code Owners | Optional | Useful for repos with `CODEOWNERS` file |
-| Require approval of the most recent reviewable push | ✓ | Prevents silent re-push past approval |
-| Require status checks to pass before merging | ✓ | Lint + test + trailer-validation |
-| Required checks | `lint`, `test`, `trailer-validation` (when CI ships) | Each must pass |
-| Require branches to be up to date before merging | ✓ | Prevents merge-skew bugs |
-| Require linear history | ✓ | Forces rebase-merge or squash-merge; no merge commits |
-| Do not allow bypassing the above settings | ✓ | Rule applies to admins too |
+The absence of rules is the policy. Agents push directly, force-push to rewrite history mid-PR, and delete branches at merge time without server-side friction. The PR-review and status-check gates required by ADR-0005 Layer 1 are enforced at the **`main` boundary** (see §6.2), not on the agent-branch namespace itself — that boundary is where agent commits actually try to reach `main`, so it is where the gates belong.
+
+This corrects the v1 design (TD-X34 v1, rolled out and reverted 2026-05-05) which placed PR-review and status-check rules on the agent-branch namespace. Those rules, when applied to a ruleset *targeting* agent branches, mean "to merge changes INTO an agent branch, you need a PR / passing checks" — which blocks the very direct-push iteration loop the rules were supposed to enable. See ADR-0005 Amendment §6.1.1 → "Discovery during rollout (2026-05-05)" for the post-mortem.
 
 ### 6.1.1 Force-push semantics on agent branches **[per ADR-0005 Amendment 2026-05-05]**
 
-The §6.1 ruleset MUST NOT include `non_fast_forward` on agent branch patterns (`claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, `bot/**`). Force-push on these branches is allowed when an open PR is in flight, the rewrite preserves the PR's stated purpose, and PR review still gates the merge into `main`. The `pull_request` rule remains in force, so review is not bypassable.
+Force-push to agent branches is permitted because §6.1 places no rule that would block it. This realizes the §6.1.1 amendment carve-out automatically: the carve-out's intent ("force-push allowed on agent branches with open PRs, preserving PR purpose, PR review still gates merge to `main`") is satisfied because nothing prohibits it server-side, and the `main` ruleset (§6.2) blocks any unreviewed change from reaching `main`.
 
-`main` keeps full force-push prohibition per §6.2 — this carve-out applies to agent branch rulesets only.
+`main` keeps full force-push prohibition per §6.2 — the carve-out applies to agent branches only.
 
-The exact ruleset spec every JARVIS repo must adopt is in `docs/policy/RULESET_CANONICAL.md`. Apply it via the rollout runbook (TD-X34 follow-up tool, separate PR).
+The canonical ruleset spec is in `docs/policy/RULESET_CANONICAL.md` v2. Apply it via the rollout runbook (TD-X38 v2 follow-up).
 
 ### 6.2 Rule 2 — `main` branch invariants
 
