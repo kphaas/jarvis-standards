@@ -1,34 +1,45 @@
 # RULESET_CANONICAL — JARVIS branch ruleset spec
 
-**Status:** Active
+**Status:** Active (v2 — redesigned 2026-05-05 per TD-X34 v2)
 **Authority:** ADR-0005 (multi-writer coordination model) + ADR-0005 Amendment 2026-05-05 (§6.1.1 force-push semantics)
 **Operational reference:** `DEPLOYMENT.md` §6.1, §6.1.1, §6.2
 
-This file defines the canonical GitHub branch ruleset every JARVIS repository MUST adopt. It is the source of truth for what `gh api` ruleset payloads should look like; runbooks and tools that apply rulesets MUST conform to this spec.
+This file defines the canonical GitHub branch rulesets every JARVIS repository MUST adopt. It is the source of truth for what `gh api` ruleset payloads should look like; runbooks and tools that apply rulesets MUST conform to this spec.
 
-Application of this ruleset across repos is *out of scope* for this document — see TD-X34 follow-up runbook for the rollout tool.
+Application of these rulesets across repos is *out of scope* for this document — see TD-X38 v2 for the rollout follow-up.
+
+---
+
+## Why this is v2
+
+The first version of this spec (v1, merged in TD-X34 PR #22, rolled out and reverted on 2026-05-05) defined a single ruleset targeting agent-branch namespaces (`claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, `bot/**`) with `pull_request`, `required_linear_history`, and `required_status_checks` rules. Rolling it out surfaced two design errors:
+
+1. **`required_status_checks` blocks initial branch creation** (zero check runs exist yet). Required `do_not_enforce_on_create: true` to even allow first push. Discovered, patched live.
+2. **`pull_request` and `required_status_checks`, when applied to a ruleset *targeting* agent branches, mean "to merge changes INTO an agent branch, you need a PR / passing checks."** That treats every direct push to `claude-code/foo` as a "merge into the protected branch" requiring a PR. Agents cannot push directly to their own branches under that interpretation. The rules were applied to the wrong target.
+
+The intent was always *"agent commits go through PR before reaching `main`."* That is a `main`-branch invariant, not an agent-branch invariant. It belongs on the `main` ruleset.
+
+v2 corrects the architecture: `main` carries all the gates; agent branches have NO ruleset and rely on the absence of rules to permit direct push, force-push, rewrites, deletion-via-`gh pr merge`, and free iteration.
 
 ---
 
 ## Scope
 
-Two rulesets per repo:
+Two ruleset slots per repo. Only one is canonical here:
 
-1. **Agent-branch ruleset** (this document, §A) — applied to agent branch patterns; allows force-push, requires PR.
-2. **`main` ruleset** — applied to `refs/heads/main`; preserves full Layer 1 protections per `DEPLOYMENT.md` §6.2. Not specified here (already canonical in `DEPLOYMENT.md` §6.2).
+1. **`main` ruleset** (this document, §A1) — applied to `refs/heads/main`. Carries every gate: PR review, status checks, linear history, no force-push, no deletion.
+2. **Agent-branch ruleset** (this document, §A2) — **DELETED** by design. The absence of any ruleset on agent-branch patterns is the policy.
+
+`DEPLOYMENT.md` §6.2 ("Rule 2 — `main` branch invariants") describes the same `main` posture in operator-procedure form. §A1 below is the API-level source of truth; §6.2 is the operator runbook. They MUST agree.
 
 ---
 
-## §A — Agent-branch ruleset
+## §A1 — `main` ruleset (canonical)
 
 ### Target
 
 ```
-refs/heads/claude-code/**
-refs/heads/cursor/**
-refs/heads/copilot/**
-refs/heads/forge/**
-refs/heads/bot/**
+refs/heads/main
 ```
 
 ### Enforcement
@@ -39,13 +50,13 @@ refs/heads/bot/**
 
 | Rule | Included? | Configuration | Why |
 |---|---|---|---|
-| `pull_request` | ✓ | `required_approving_review_count: 0`, `require_last_push_approval: true`, `dismiss_stale_reviews_on_push: true`, `required_review_thread_resolution: false` | Layer 1 — agent commits go through PR. Solo dev: `required_approving_review_count=0` because the owner's own self-approval acts as the human gate. `require_last_push_approval` prevents silent re-push past approval. |
-| `non_fast_forward` | ✗ | — | **Carve-out per ADR-0005 Amendment §6.1.1.** Permits in-flight rebase-and-fix on agent branches with open PRs. |
-| `update` | ✗ | — | Agent branches must remain updatable while in flight. |
-| `deletion` | ✗ | — | Branches are deleted by `gh pr merge --delete-branch` post-merge; the rule would block this. |
-| `creation` | ✗ | — | Agents must be able to create their own branches. |
-| `required_linear_history` | ✓ | — | Squash or rebase merge only; no merge commits into the agent branch (keeps history clean for review). |
-| `required_status_checks` | ✓ | repo-specific (typically `lint`, `typecheck`, `test`, `secret-scan`, `base-staleness`, `ci-pass`) | Status checks gate the PR's merge button. The exact check set is per-repo and SHOULD match the substrate CI matrix. |
+| `pull_request` | ✓ | `required_approving_review_count: 0`, `require_last_push_approval: true`, `dismiss_stale_reviews_on_push: true` | Layer 1 — agent commits cannot reach `main` except via PR. Solo dev: `required_approving_review_count=0`; the owner's own self-approval is the human gate. `require_last_push_approval` prevents silent re-push past approval. |
+| `required_status_checks` | ✓ | `strict_required_status_checks_policy: false`, `do_not_enforce_on_create: true`, contexts list per repo | Status checks (substrate CI matrix) must pass before merge to `main`. `do_not_enforce_on_create: true` lets the rule survive ruleset (re)creation without spuriously blocking on branches that pre-existed. `strict_required_status_checks_policy: false` permits squash/rebase merges without a re-run round-trip. |
+| `required_linear_history` | ✓ | — | Squash or rebase merge only; no merge commits land on `main`. |
+| `non_fast_forward` | ✓ | — | Force-push to `main` is prohibited (per ADR-0005 §6.1; the §6.1.1 carve-out applies only to agent branches). |
+| `deletion` | ✓ | — | `main` cannot be deleted. |
+| `update` | ✗ | — | Not used; `pull_request` covers update gating with finer parameters. |
+| `creation` | ✗ | — | `main` already exists; not applicable. |
 
 ### Bypass actors
 
@@ -53,32 +64,46 @@ refs/heads/bot/**
 []
 ```
 
-Empty. The ADR's wording (Amendment §6.1.1) captures the carve-out; we do NOT use bypass-actor lists to scope force-push to a single user. See "Trade-off accepted" in ADR-0005 Amendment for the reasoning.
+Empty. Owner-bypass is documented in `DEPLOYMENT.md` §15.2.3 (must be logged in handoff) and SHOULD be granted via temporary ruleset toggle, not via bypass-actor list.
 
 ### Conditions
 
-None. The ruleset applies whenever the target ref pattern matches.
+None. The ruleset applies whenever the target ref matches.
 
 ---
 
-## §B — Reference payload
+## §A2 — Agent-branch ruleset (intentionally absent)
 
-The following GitHub Rulesets API payload is the canonical shape. Tools that apply this ruleset MUST emit this structure (modulo `required_status_checks.contexts`, which is repo-specific):
+**No ruleset MUST exist** on any of the following patterns:
+
+```
+refs/heads/claude-code/**
+refs/heads/cursor/**
+refs/heads/copilot/**
+refs/heads/forge/**
+refs/heads/bot/**
+```
+
+Rationale: the §6.1.1 amendment's intent ("force-push allowed on agent branches with open PRs") is automatically satisfied when no rule blocks it. Adding *any* `pull_request` or `required_status_checks` rule to these patterns blocks the direct-push iteration loop that defines the agent workflow — that was the v1 design error.
+
+**Migration note.** If your repo previously had a `jarvis-agent-branches` ruleset from the broken v1 spec (TD-X34 v1, rolled out and reverted 2026-05-05), it has been DELETED. The §6.1.1 amendment's intent is preserved — force-push works because no rule prohibits it; PR review still gates merge to `main` because the **`main` ruleset** (§A1) blocks direct pushes there.
+
+The `non_fast_forward`, `pull_request`, and `required_status_checks` enforcement intent for agent-branch *contents reaching `main`* is satisfied at the `main` boundary in §A1. There is no operational benefit to applying rules at the agent-branch boundary, and v1 demonstrated significant operational harm.
+
+---
+
+## §B — Reference payload (`main` ruleset)
+
+The following GitHub Rulesets API payload is the canonical shape. Tools that apply this ruleset MUST emit this structure (modulo `required_status_checks.required_status_checks` contexts list, which is repo-specific):
 
 ```jsonc
 {
-  "name": "jarvis-agent-branches",
+  "name": "jarvis-main",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
     "ref_name": {
-      "include": [
-        "refs/heads/claude-code/**",
-        "refs/heads/cursor/**",
-        "refs/heads/copilot/**",
-        "refs/heads/forge/**",
-        "refs/heads/bot/**"
-      ],
+      "include": ["refs/heads/main"],
       "exclude": []
     }
   },
@@ -97,9 +122,16 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
       "type": "required_linear_history"
     },
     {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "deletion"
+    },
+    {
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
         "required_status_checks": [
           { "context": "lint" },
           { "context": "typecheck" },
@@ -115,7 +147,11 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
 }
 ```
 
-The required-checks list is the **typical** JARVIS substrate matrix; per-repo overrides are allowed where a check does not exist (e.g. submodule-only repos may drop `test`). The `pull_request` rule and the *absence* of `non_fast_forward` are NOT optional — those are the load-bearing parts of this spec.
+The required-checks list is the **typical** JARVIS substrate matrix; per-repo overrides are allowed where a check does not exist. For repos whose substrate adoption is still pending (forge, financial, family as of 2026-05-05), apply the same payload with the `required_status_checks` rule **omitted entirely**, and add it back when their CI lands.
+
+`do_not_enforce_on_create: true` is **not optional** when `required_status_checks` is present. It permits the ruleset itself to be (re)applied without spuriously blocking on a branch state that pre-existed; it does not weaken merge-time enforcement.
+
+The load-bearing parts of this spec are: (a) `pull_request`, (b) `non_fast_forward`, (c) `required_linear_history`, (d) presence of `required_status_checks` once substrate is live. Anything else is tunable per-repo.
 
 ---
 
@@ -123,14 +159,20 @@ The required-checks list is the **typical** JARVIS substrate matrix; per-repo ov
 
 A JARVIS repo conforms when:
 
-1. A ruleset matching §B exists, named `jarvis-agent-branches`, enforcement=`active`.
-2. No additional ruleset on the same patterns adds back `non_fast_forward`.
-3. The `main` ruleset (separate, per `DEPLOYMENT.md` §6.2) is also present.
+1. A ruleset matching §B exists on `refs/heads/main`, named `jarvis-main`, enforcement=`active`.
+2. **No** ruleset exists on any of the five agent-branch patterns (`claude-code/**`, `cursor/**`, `copilot/**`, `forge/**`, `bot/**`). The absence is the policy.
+3. The §6.3 quarterly audit checklist in `DEPLOYMENT.md` confirms both of the above.
 
-The §6.3 quarterly audit checklist in `DEPLOYMENT.md` SHOULD be extended to verify §A conformance. That extension lands with the rollout runbook, not in this PR.
+The §6.3 audit query MUST check both: presence of `jarvis-main` ruleset, AND absence of any ruleset on agent patterns. That extension lands with the rollout runbook (TD-X38 v2).
 
 ---
 
 ## §D — Trade-off acknowledged
 
-The ruleset grants force-push on agent branches to *any* actor with push access, not only the repo owner. GitHub Rulesets cannot scope force-push to a specific user without populating `bypass_actors`, which we deliberately leave empty. Acceptable today because (a) only the repo owner has push access to JARVIS repositories, (b) any agent commit goes through PR before merge into `main`. Revisit via ADR amendment if push access broadens (additional contributors, paid agent integrations with their own GitHub identities, etc.).
+Agent branches have **zero** server-side enforcement under v2. Anyone with push access can rewrite, force-push, or delete an agent branch freely. Acceptable today because:
+
+- Only the repo owner has push access to JARVIS repositories.
+- The `main` ruleset blocks any unreviewed, unchecked, or merge-commit-bearing change from reaching `main` regardless of what happens on agent branches first.
+- Agent-branch chaos (force-pushes, rebases, mid-flight rewrites) is *expected* and *desired* — that is the workflow §6.1.1 was amended to permit.
+
+Revisit via ADR amendment if push access broadens (additional contributors, paid agent integrations with their own GitHub identities, etc.). At that point, consider a `pull_request`-only ruleset on agent branches with `do_not_enforce_on_create: true` to gate merges *into* agent branches by non-owner actors while still allowing the owner's direct iteration.
