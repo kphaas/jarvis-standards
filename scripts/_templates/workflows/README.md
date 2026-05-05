@@ -10,6 +10,7 @@ rather than the local-commit side handled by `_templates/hooks/`.
 | File | TD | Purpose |
 |---|---|---|
 | `pr-base-staleness.yml` | TD-X23 | Check the PR's merge-base age vs the target branch. Posts an idempotent comment when the base is ≥14 days old; fails the required check when it's ≥30 days. Catches PRs that have rotted (silent merge conflicts, lost context). |
+| `ci.yml` | TD-X29 | Uniform per-repo CI: lint (ruff), typecheck (mypy), test (pytest), secret-scan (detect-secrets baseline audit). Each Python job gracefully skips when its config is absent. The aggregator job `ci-pass` is the single required-status-check name configured in branch protection. |
 
 ## Propagation
 

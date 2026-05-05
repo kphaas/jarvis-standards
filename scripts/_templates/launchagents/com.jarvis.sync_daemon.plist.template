@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  JARVIS sync daemon — LaunchAgent template (TD-X27)
+
+  Renders to ~/Library/LaunchAgents/com.jarvis.sync_daemon.plist via
+  scripts/install_sync_daemon.sh, which substitutes {{HOME}} with the
+  current $HOME at install time. Templates live in jarvis-standards;
+  rendered plists are gitignored at the install site.
+
+  See ADR-0007 for the pull-based GitOps decision and DEPLOYMENT.md
+  §15.2.3 for operational scope.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jarvis.sync_daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{HOME}}/jarvis-standards/scripts/sync_daemon.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/.jarvis/sync_daemon.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/.jarvis/sync_daemon.stderr.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>{{HOME}}</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SYNC_DAEMON_INTERVAL</key>
+    <string>300</string>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

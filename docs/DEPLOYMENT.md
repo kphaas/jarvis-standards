@@ -977,6 +977,7 @@ Pre-Alpha-5 (today): Postgres still runs natively on Brain, not in a container. 
 14. Committing without `X-Machine` trailer (CI status check rejects it)
 15. Branching outside the namespace conventions in §4.3 — agents on `feature/*` or humans on `claude-code/*`
 16. Bypassing branch protection rules via "skip checks" (defeat-in-depth violation)
+17. Using owner-bypass on a required CI check for non-emergency reasons. Bypass exists for genuine emergencies (production hotfix, broken CI blocking everything else). Routine bypass — e.g. "the lint job is flaky, just merge" — is a §15.2 violation; fix the check, do not skip it. Bypass usage MUST be logged in the session handoff (§15.2.3 owner-bypass discipline)
 
 ### 15.2.1 Enforcement mechanisms
 
@@ -1046,11 +1047,40 @@ operator working a hot fix in an agent's namespace. The hook does not
 block — stderr gets a one-line warning and `~/.jarvis/namespace_violations.log`
 gets a tab-separated audit row (`timestamp \t repo \t branch \t identity \t action`).
 
+### 15.2.3 CI/CD substrate
+
+A trio of complementary mechanisms keeps every JARVIS clone close to
+`main`, every commit linted and secret-free, and every PR gated by the
+same CI matrix. All three are propagated from `jarvis-standards` and
+adopted per repo via the install scripts described in §15.2.1.
+
+| Mechanism | TD | Source | Role |
+|---|---|---|---|
+| Polling sync daemon | TD-X27 | `scripts/_templates/sync_daemon.sh` + `scripts/_templates/launchagents/com.jarvis.sync_daemon.plist.template` | Long-lived LaunchAgent on Sandbox + Air. Every interval (default 300s) walks every clone under `$HOME/jarvis-*`, fetches `origin` read-only, and fast-forwards local `main` when (and only when) the working tree is clean and `ahead==0`. Pull-based GitOps per ADR-0007. Logs to `~/.jarvis/sync_daemon.log`; never rebases, never resolves conflicts. |
+| Pre-commit framework | TD-X28 | `scripts/_templates/.pre-commit-config.yaml` + `scripts/_templates/.secrets.baseline` + `scripts/install_pre_commit.sh` | pre-commit.com framework with three hook sources: `ruff` (lint + auto-fix), `ruff-format`, Yelp `detect-secrets` (audited against `.secrets.baseline`), and a `local` repo entry that reruns the JARVIS namespace + main-block hook (TD-X24 + TD-X25) so the framework's takeover of `.git/hooks/pre-commit` does not silently drop §15.2 #11 / #15 enforcement. |
+| Uniform CI workflow | TD-X29 | `scripts/_templates/workflows/ci.yml` | Four parallel jobs on every PR + `main` push: `lint` (ruff check + format check), `typecheck` (mypy if configured), `test` (pytest if configured), `secret-scan` (detect-secrets baseline audit). Each Python job gracefully skips when its config is absent. Aggregator job `ci-pass` is the single required-status-check name in branch protection. |
+
+**Why pull-based, not webhook-push.** Webhook-push from GitHub Actions to
+Sandbox + Air was considered and rejected. Air is a laptop and is asleep
+or off the network most of the day; a webhook would silently drop on
+delivery failure and the operator wouldn't notice until the drift was
+weeks deep. A polling daemon retries on every cycle until it reaches the
+remote. ArgoCD / Flux took the same architectural turn at scale for the
+same reasons. ADR-0007 is the lock.
+
+**Owner-bypass discipline.** Ken is repo owner on every JARVIS repo and
+can bypass any required status check via GitHub's "Bypass" branch
+protection rule. The mechanism exists for genuine emergencies — production
+hotfix, CI itself broken — and using it for anything else is a §15.2 #17
+violation. Whenever bypass IS used, the session handoff must record
+which PR, which check was bypassed, and why. The bypass log lives in
+`docs/handoffs/` so future audits can trace it.
+
 ### 15.3 Sandbox-specific
 
-17. `~/jarvis/.secrets` on Sandbox — Sandbox uses `~/.secrets` (no jarvis subdir). Path difference is documented in §11.1
-18. Hardcoded `100.124.172.14` (old Sandbox IP) anywhere — magic DNS `${SANDBOX_HOST}` only **[NEW from drift sweep]**
-19. Hardcoded `jarvis-forge` machine hostname — current is `jarvis-sandbox` **[NEW from 2026-04-28 migration]**
+18. `~/jarvis/.secrets` on Sandbox — Sandbox uses `~/.secrets` (no jarvis subdir). Path difference is documented in §11.1
+19. Hardcoded `100.124.172.14` (old Sandbox IP) anywhere — magic DNS `${SANDBOX_HOST}` only **[NEW from drift sweep]**
+20. Hardcoded `jarvis-forge` machine hostname — current is `jarvis-sandbox` **[NEW from 2026-04-28 migration]**
 
 ---
 
