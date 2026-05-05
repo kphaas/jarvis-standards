@@ -11,6 +11,12 @@
 # protection — it depends on every other job, so a skip in any one of
 # them propagates as a green required check, while a real failure
 # anywhere blocks the merge.
+#
+# Step ordering matters: the gate step that decides whether the job's
+# real work runs MUST come before the Python / uv setup, because
+# `astral-sh/setup-uv@v3` with `cache-dependency-glob` errors out if
+# nothing matches the glob — so a no-pyproject-toml repo would fail
+# during setup before our gate had a chance to skip it.
 
 name: ci
 
@@ -36,19 +42,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
       - name: Skip if no Python config
         id: gate
         run: |
@@ -58,6 +51,21 @@ jobs:
           else
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        if: steps.gate.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
 
       - name: ruff check
         if: steps.gate.outputs.skip == 'false'
@@ -73,19 +81,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
       - name: Skip if mypy not configured
         id: gate
         run: |
@@ -95,6 +90,21 @@ jobs:
           else
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        if: steps.gate.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
 
       - name: Sync dependencies
         if: steps.gate.outputs.skip == 'false'
@@ -110,19 +120,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
       - name: Skip if no tests directory
         id: gate
         run: |
@@ -132,6 +129,21 @@ jobs:
           else
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        if: steps.gate.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
 
       - name: Sync dependencies
         if: steps.gate.outputs.skip == 'false'
