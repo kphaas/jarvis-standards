@@ -1076,6 +1076,21 @@ violation. Whenever bypass IS used, the session handoff must record
 which PR, which check was bypassed, and why. The bypass log lives in
 `docs/handoffs/` so future audits can trace it.
 
+**Sync daemon configuration (TD-X30).** `install_sync_daemon.sh` reads
+two install-time env vars:
+
+| Env var | Default | Effect |
+|---|---|---|
+| `SYNC_DAEMON_INTERVAL` | `300` | Seconds between cycles. Must be a positive integer; the installer rejects anything else. The value is substituted into the rendered plist's `EnvironmentVariables.SYNC_DAEMON_INTERVAL` so the running LaunchAgent inherits it. |
+| `JARVIS_INSTALL_SKIP_LAUNCHCTL` | unset | Test-only escape hatch — when set to `1`, the installer renders the plist and stages the daemon at `~/.jarvis/sync_daemon.sh` but skips the `launchctl bootstrap` / `enable` / `kickstart` steps. Production callers leave this unset. |
+
+The daemon body is staged at `~/.jarvis/sync_daemon.sh` (outside any
+source repo) so re-running the installer never dirties the
+`jarvis-standards` working tree. Earlier installs may have left a copy
+at `~/jarvis-standards/scripts/sync_daemon.sh`; running
+`uninstall_sync_daemon.sh` removes both that legacy copy and the
+canonical staged script.
+
 ### 15.3 Sandbox-specific
 
 18. `~/jarvis/.secrets` on Sandbox — Sandbox uses `~/.secrets` (no jarvis subdir). Path difference is documented in §11.1

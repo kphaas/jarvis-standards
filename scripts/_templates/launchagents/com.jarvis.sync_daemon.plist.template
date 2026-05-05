@@ -4,9 +4,16 @@
   JARVIS sync daemon — LaunchAgent template (TD-X27)
 
   Renders to ~/Library/LaunchAgents/com.jarvis.sync_daemon.plist via
-  scripts/install_sync_daemon.sh, which substitutes {{HOME}} with the
-  current $HOME at install time. Templates live in jarvis-standards;
-  rendered plists are gitignored at the install site.
+  scripts/install_sync_daemon.sh, which substitutes {{HOME}} and
+  {{INTERVAL}} at install time. {{INTERVAL}} reads from the caller's
+  SYNC_DAEMON_INTERVAL env var (default 300). Templates live in
+  jarvis-standards; rendered plists are gitignored at the install site.
+
+  The daemon script itself lives outside any source repo, at
+  {{HOME}}/.jarvis/sync_daemon.sh. The installer copies the template body
+  there during install. This keeps the source repo's working tree clean
+  so the daemon does not flag jarvis-standards as dirty_tree_skip on
+  every cycle (TD-X30 fix).
 
   See ADR-0007 for the pull-based GitOps decision and DEPLOYMENT.md
   §15.2.3 for operational scope.
@@ -19,7 +26,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>{{HOME}}/jarvis-standards/scripts/sync_daemon.sh</string>
+    <string>{{HOME}}/.jarvis/sync_daemon.sh</string>
   </array>
 
   <key>RunAtLoad</key>
@@ -44,7 +51,7 @@
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>SYNC_DAEMON_INTERVAL</key>
-    <string>300</string>
+    <string>{{INTERVAL}}</string>
   </dict>
 
   <key>ThrottleInterval</key>
