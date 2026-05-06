@@ -106,3 +106,53 @@ Everything below those 5 lines is treated as docstring/code and preserved in the
 **Why count-based stripping (not blank-line-based)?**
 
 Earlier versions of the engine stripped "from `# TEMPLATE FILE` until the first blank line." This silently broke when a template's docstring had no blank line between the meta-block and the first comment line — the engine would keep stripping comment lines until it hit `set -euo pipefail`, deleting the entire docstring. Caught during family pilot adoption (Session #10) when `check_sync.sh` propagated without its newly-rewritten docstring. Fixed in PR #8 with explicit count-based stripping.
+
+## Developer ergonomics: jarvis_branch + jarvis_pr
+
+Cross-repo branch + PR helpers for use in any JARVIS repo.
+
+### Install
+
+Add to your shell rc (~/.zshrc or ~/.bashrc):
+
+```bash
+export PATH="$HOME/jarvis-standards/scripts:$PATH"
+```
+
+On Sandbox: `$HOME/jarvis-standards/scripts` resolves to `/Users/jarvissand/jarvis-standards/scripts/`.
+On Air: `$HOME/jarvis-standards/scripts` resolves to `/Users/swetagurnani/jarvis-standards/scripts/`.
+
+Reload your shell or `source ~/.zshrc`. Then:
+
+### Usage
+
+#### `jarvis_branch <name>`
+
+Creates a new branch from latest origin/main and pushes upstream.
+Branch name must start with one of: `feature/`, `claude-code/`, `hotfix/`, `chore/`.
+
+```bash
+cd ~/jarvis-financial
+jarvis_branch feature/m3-day-trading-agent
+```
+
+#### `jarvis_pr [--draft] [--title "..."] [--body "..."]`
+
+Pushes current branch + opens a PR against main.
+
+```bash
+cd ~/jarvis-financial
+# ... edit + commit ...
+jarvis_pr --title "feat: add intraday momentum signal" --body "Closes #99"
+```
+
+With no arguments, uses `gh pr create --fill` (auto-fills from last commit).
+
+### Exit codes
+
+- 0 — success
+- 1 — usage error
+- 2 — not a git repo
+- 3 — dirty tree (jarvis_branch) or PR'ing from main (jarvis_pr)
+- 4 — branch prefix invalid (jarvis_branch) or dirty tree (jarvis_pr)
+- 5 — branch already exists (jarvis_branch only)
