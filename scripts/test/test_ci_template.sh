@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Tests for scripts/_templates/workflows/ci.yml (TD-X29 + TD-X32 + TD-X35).
+# Tests for scripts/_templates/workflows/ci.yml (TD-X29 + TD-X32 + TD-X35
+# + TD-X48).
 #
-# Lints the YAML and grep-asserts that the workspace-aware (TD-X32) and
-# dev-group-aware (TD-X35) conditional logic exists in the rendered
-# template. Cheap structural checks; no runner spin-up. Companion to the
-# live PR CI, which exercises the workflow end-to-end on jarvis-standards
-# itself.
+# Lints the YAML and grep-asserts that the workspace-aware (TD-X32),
+# dev-group-aware (TD-X35), and integration-marker (TD-X48) conditional
+# logic exists in the rendered template. Cheap structural checks; no
+# runner spin-up. Companion to the live PR CI, which exercises the
+# workflow end-to-end on jarvis-standards itself.
 #
 # Cases:
 #   1.  ci.yml parses as valid YAML
@@ -18,6 +19,10 @@
 #   8.  typecheck job mirrors test's workspace + dev-group conditional
 #   9.  lint job is unchanged — does NOT depend on uv sync
 #   10. workflows/README.md mentions TD-X32 / TD-X35 / workspace handling
+#   11. test job pytest step exposes PYTEST_MARKERS env var (TD-X48)
+#   12. test job pytest step defaults PYTEST_MARKERS to "not integration" (TD-X48)
+#   13. test job pytest invocation uses -m "${PYTEST_MARKERS}" (TD-X48)
+#   14. test job pytest step references vars.JARVIS_PYTEST_MARKERS for repo override (TD-X48)
 
 set -u
 
@@ -138,6 +143,42 @@ if grep -qE 'TD-X32|TD-X35|workspace|dev-group' "${readme}"; then
 else
   bad "workflows README documents TD-X32 / TD-X35 / workspace / dev-group handling" \
     "no mention of TD-X32, TD-X35, 'workspace', or 'dev-group' in ${readme}"
+fi
+
+# --- 11. test job pytest step exposes PYTEST_MARKERS env (TD-X48) ---------
+
+if grep -qE '^[[:space:]]*PYTEST_MARKERS:' <<<"${test_block}"; then
+  ok "test job pytest step exposes PYTEST_MARKERS env var (TD-X48)"
+else
+  bad "test job pytest step exposes PYTEST_MARKERS env var (TD-X48)" \
+    "expected 'PYTEST_MARKERS:' env binding in test job pytest step"
+fi
+
+# --- 12. PYTEST_MARKERS defaults to "not integration" (TD-X48) -----------
+
+if grep -qF "'not integration'" <<<"${test_block}"; then
+  ok "test job pytest step defaults PYTEST_MARKERS to 'not integration' (TD-X48)"
+else
+  bad "test job pytest step defaults PYTEST_MARKERS to 'not integration' (TD-X48)" \
+    "expected literal 'not integration' default in PYTEST_MARKERS expression"
+fi
+
+# --- 13. pytest invocation uses -m "${PYTEST_MARKERS}" (TD-X48) ----------
+
+if grep -qE 'uv run pytest -m "\$\{PYTEST_MARKERS\}"' <<<"${test_block}"; then
+  ok "test job pytest invocation uses -m \"\${PYTEST_MARKERS}\" (TD-X48)"
+else
+  bad "test job pytest invocation uses -m \"\${PYTEST_MARKERS}\" (TD-X48)" \
+    "expected 'uv run pytest -m \"\${PYTEST_MARKERS}\"' in test job"
+fi
+
+# --- 14. repo-level override via vars.JARVIS_PYTEST_MARKERS (TD-X48) -----
+
+if grep -qF 'vars.JARVIS_PYTEST_MARKERS' <<<"${test_block}"; then
+  ok "test job pytest step references vars.JARVIS_PYTEST_MARKERS for repo override (TD-X48)"
+else
+  bad "test job pytest step references vars.JARVIS_PYTEST_MARKERS for repo override (TD-X48)" \
+    "expected 'vars.JARVIS_PYTEST_MARKERS' (GitHub repo variable) in test job pytest step"
 fi
 
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"
