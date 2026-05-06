@@ -1,5 +1,5 @@
 # JARVIS uniform CI workflow — TD-X29 (TD-X32 workspace-aware sync;
-# TD-X35 dev-group-aware sync).
+# TD-X35 dev-group-aware sync; TD-X48 integration-marker filter).
 #
 # Source of truth: jarvis-standards/scripts/_templates/workflows/ci.yml.
 # Phase 3 propagates this into each consuming repo's .github/workflows/.
@@ -35,6 +35,17 @@
 # typecheck entirely (covers the alpha-without-workspace-root case until
 # alpha adopts a workspace root). The lint job is unaffected because `uv
 # tool run ruff` operates on the filesystem and doesn't need a synced env.
+#
+# Integration-test filter (TD-X48): the substrate's pytest invocation
+# defaults to `-m "not integration"`. Tests that require external
+# infrastructure (Postgres, Redis, network, file system fixtures, etc.)
+# MUST be marked `@pytest.mark.integration` and will be skipped in default
+# CI. This keeps PR-time signal fast and substrate-portable; integration
+# suites are repo-owned and run via a separate workflow (TD-X50, future).
+# Repos can override the filter by setting the repo-level variable
+# `JARVIS_PYTEST_MARKERS` in repo settings (e.g. `""` to run everything,
+# or `"not integration and not slow"` to add additional exclusions).
+# See docs/policy/CI_CONVENTIONS.md for the full convention.
 
 name: ci
 
@@ -215,9 +226,13 @@ jobs:
           echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
           uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
 
-      - name: pytest
+      - name: pytest (default skips integration tests; override via vars.JARVIS_PYTEST_MARKERS)
         if: steps.gate.outputs.skip == 'false'
-        run: uv run pytest
+        env:
+          PYTEST_MARKERS: ${{ vars.JARVIS_PYTEST_MARKERS != '' && vars.JARVIS_PYTEST_MARKERS || 'not integration' }}
+        run: |
+          echo "pytest marker filter: ${PYTEST_MARKERS}"
+          uv run pytest -m "${PYTEST_MARKERS}"
 
   secret-scan:
     name: secret-scan
