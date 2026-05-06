@@ -1,5 +1,6 @@
 # JARVIS uniform CI workflow — TD-X29 (TD-X32 workspace-aware sync;
-# TD-X35 dev-group-aware sync; TD-X48 integration-marker filter).
+# TD-X35 dev-group-aware sync; TD-X48 integration-marker filter;
+# TD-X48 v2 exit-5 handling).
 #
 # Source of truth: jarvis-standards/scripts/_templates/workflows/ci.yml.
 # Phase 3 propagates this into each consuming repo's .github/workflows/.
@@ -46,6 +47,13 @@
 # `JARVIS_PYTEST_MARKERS` in repo settings (e.g. `""` to run everything,
 # or `"not integration and not slow"` to add additional exclusions).
 # See docs/policy/CI_CONVENTIONS.md for the full convention.
+#
+# Exit-5 handling (TD-X48 v2): when the marker filter excludes every
+# collected test, pytest exits with code 5 ("no tests collected"). For
+# repos whose suites are 100% integration-marked (e.g. family), this is
+# the expected state under the substrate default — not a failure. The
+# test step captures pytest's exit code, treats 5 as success with a
+# ::notice:: annotation, and propagates every other code unchanged.
 
 name: ci
 
@@ -232,7 +240,19 @@ jobs:
           PYTEST_MARKERS: ${{ vars.JARVIS_PYTEST_MARKERS != '' && vars.JARVIS_PYTEST_MARKERS || 'not integration' }}
         run: |
           echo "pytest marker filter: ${PYTEST_MARKERS}"
+          set +e
           uv run pytest -m "${PYTEST_MARKERS}"
+          rc=$?
+          set -e
+          # pytest exit 5 = "no tests collected" — for substrate-default
+          # repos whose tests are 100% integration-marked (TD-X48), this
+          # is the expected state, not a failure. Treat as success and
+          # surface a notice annotation so the run reports it visibly.
+          if [ "$rc" -eq 5 ]; then
+            echo "::notice::No tests matched marker filter '${PYTEST_MARKERS}' — treating pytest exit 5 (no tests collected) as success per TD-X48 v2."
+            exit 0
+          fi
+          exit "$rc"
 
   secret-scan:
     name: secret-scan

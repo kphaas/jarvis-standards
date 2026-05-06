@@ -75,6 +75,27 @@ No workflow-file edit is required to change the filter — keeps the
 substrate identical across repos and preserves Phase 3 propagation
 without per-repo divergence.
 
+### Repos with 100%-integration test suites (TD-X48 v2)
+
+Some repos — particularly those whose every test depends on a real
+database or service fixture (e.g. `jarvis-family`'s 34 tests, all
+session-scoped on a Postgres pool + JWT keyfile) — have **no**
+non-integration tests today. Under the substrate default, the marker
+filter excludes every collected test, and `pytest` exits with code 5
+("no tests collected"). Without special handling, `bash -e` would
+propagate that as a job failure and the substrate's own default would
+red-line the repo.
+
+The substrate handles this in TD-X48 v2: pytest is invoked with `set +e`
+around it, the exit code is captured, and code 5 is treated as success
+with a `::notice::` annotation (visible in the GitHub Actions run UI).
+Every other exit code propagates unchanged. Net effect: a repo with
+zero unit/contract tests still gets a green substrate `test` job — and
+the notice annotation is the operational signal that the suite is
+fully integration-deferred and PR-time coverage is therefore lighter
+than usual. Repos that *intend* to have unit coverage should treat the
+notice as a prompt to add it.
+
 ## Why Philosophy B (default-skip)
 
 Two architecturally consistent choices existed at TD-X48 decision time:
