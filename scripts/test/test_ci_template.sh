@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tests for scripts/_templates/workflows/ci.yml (TD-X29 + TD-X32 + TD-X35
-# + TD-X48).
+# + TD-X48 + TD-X48 v2).
 #
 # Lints the YAML and grep-asserts that the workspace-aware (TD-X32),
-# dev-group-aware (TD-X35), and integration-marker (TD-X48) conditional
-# logic exists in the rendered template. Cheap structural checks; no
-# runner spin-up. Companion to the live PR CI, which exercises the
-# workflow end-to-end on jarvis-standards itself.
+# dev-group-aware (TD-X35), integration-marker (TD-X48), and exit-5
+# tolerant (TD-X48 v2) conditional logic exists in the rendered template.
+# Cheap structural checks; no runner spin-up. Companion to the live PR
+# CI, which exercises the workflow end-to-end on jarvis-standards itself.
 #
 # Cases:
 #   1.  ci.yml parses as valid YAML
@@ -23,6 +23,7 @@
 #   12. test job pytest step defaults PYTEST_MARKERS to "not integration" (TD-X48)
 #   13. test job pytest invocation uses -m "${PYTEST_MARKERS}" (TD-X48)
 #   14. test job pytest step references vars.JARVIS_PYTEST_MARKERS for repo override (TD-X48)
+#   15. test job treats pytest exit 5 ("no tests collected") as success (TD-X48 v2)
 
 set -u
 
@@ -179,6 +180,24 @@ if grep -qF 'vars.JARVIS_PYTEST_MARKERS' <<<"${test_block}"; then
 else
   bad "test job pytest step references vars.JARVIS_PYTEST_MARKERS for repo override (TD-X48)" \
     "expected 'vars.JARVIS_PYTEST_MARKERS' (GitHub repo variable) in test job pytest step"
+fi
+
+# --- 15. test job treats pytest exit 5 as success (TD-X48 v2) ------------
+#
+# When the marker filter excludes every test, pytest exits 5 ("no tests
+# collected"). The substrate must capture that exit code and treat it as
+# success — otherwise repos whose suites are 100% integration-marked
+# (e.g. family) fail CI on the substrate's own default behavior.
+
+fail_msg=""
+grep -qE '\[ "\$rc" -eq 5 \]' <<<"${test_block}" || fail_msg="${fail_msg} no '[ \"\$rc\" -eq 5 ]' guard;"
+grep -qE '^[[:space:]]*exit 0[[:space:]]*$' <<<"${test_block}" || fail_msg="${fail_msg} no 'exit 0' branch;"
+grep -qE '^[[:space:]]*rc=\$\?[[:space:]]*$' <<<"${test_block}" || fail_msg="${fail_msg} no 'rc=\$?' capture;"
+if [ -z "${fail_msg}" ]; then
+  ok "test job treats pytest exit 5 (no tests collected) as success (TD-X48 v2)"
+else
+  bad "test job treats pytest exit 5 (no tests collected) as success (TD-X48 v2)" \
+    "missing in test job pytest step:${fail_msg}"
 fi
 
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"
