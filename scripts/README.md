@@ -107,29 +107,32 @@ Everything below those 5 lines is treated as docstring/code and preserved in the
 
 Earlier versions of the engine stripped "from `# TEMPLATE FILE` until the first blank line." This silently broke when a template's docstring had no blank line between the meta-block and the first comment line — the engine would keep stripping comment lines until it hit `set -euo pipefail`, deleting the entire docstring. Caught during family pilot adoption (Session #10) when `check_sync.sh` propagated without its newly-rewritten docstring. Fixed in PR #8 with explicit count-based stripping.
 
-## Developer ergonomics: jarvis_branch + jarvis_pr
+## Developer ergonomics: jarvis_branch + jarvis_pr + jarvis_install
 
-Cross-repo branch + PR helpers for use in any JARVIS repo.
+Cross-repo branch + PR helpers for any JARVIS repo, plus an idempotent installer.
 
-### Install
-
-Add to your shell rc (~/.zshrc or ~/.bashrc):
+### Install (per-node, one time)
 
 ```bash
-export PATH="$HOME/jarvis-standards/scripts:$PATH"
+bash ~/jarvis-standards/scripts/jarvis_install.sh
+source ~/.zshrc   # or ~/.bashrc
 ```
 
-On Sandbox: `$HOME/jarvis-standards/scripts` resolves to `/Users/jarvissand/jarvis-standards/scripts/`.
-On Air: `$HOME/jarvis-standards/scripts` resolves to `/Users/swetagurnani/jarvis-standards/scripts/`.
+On Sandbox `$HOME` resolves to `/Users/jarvissand`. On Air it resolves to `/Users/swetagurnani`. The install script auto-detects the correct path from its own location.
 
-Reload your shell or `source ~/.zshrc`. Then:
+`jarvis_install.sh` is idempotent — safe to re-run. It only adds the PATH entry to your shell rc once.
+
+### Verify
+
+```bash
+which jarvis_branch && which jarvis_pr
+```
 
 ### Usage
 
 #### `jarvis_branch <name>`
 
-Creates a new branch from latest origin/main and pushes upstream.
-Branch name must start with one of: `feature/`, `claude-code/`, `hotfix/`, `chore/`.
+Creates a new branch from latest origin/main and pushes upstream. Branch name must start with one of: `feature/`, `claude-code/`, `hotfix/`, `chore/`.
 
 ```bash
 cd ~/jarvis-financial
@@ -151,7 +154,7 @@ With no arguments, uses `gh pr create --fill` (auto-fills from last commit).
 ### Exit codes
 
 - 0 — success
-- 1 — usage error
+- 1 — usage error or missing prerequisites
 - 2 — not a git repo
 - 3 — dirty tree (jarvis_branch) or PR'ing from main (jarvis_pr)
 - 4 — branch prefix invalid (jarvis_branch) or dirty tree (jarvis_pr)
