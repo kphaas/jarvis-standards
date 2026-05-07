@@ -4,9 +4,12 @@
 # Wires:
 #   .pre-commit-config.yaml  → ruff (lint+fix) + ruff-format + detect-secrets
 #                              + JARVIS namespace/main-block enforcement
+#                              + JARVIS force-push block (TD-X31)
 #   .secrets.baseline        → detect-secrets baseline (seeded via scan)
 #   .jarvis-hooks/pre-commit → checked-in copy of TD-X24 + TD-X25 hook
+#   .jarvis-hooks/pre-push   → checked-in copy of TD-X31 force-push block
 #   .git/hooks/pre-commit    → managed by `pre-commit install`
+#   .git/hooks/pre-push      → managed by `pre-commit install --hook-type pre-push`
 #
 # pre-commit framework's `pre-commit install` overwrites
 # .git/hooks/pre-commit. Without the local-hook indirection above, that
@@ -55,8 +58,9 @@ template_dir="${script_dir}/_templates"
 config_template="${template_dir}/.pre-commit-config.yaml"
 baseline_template="${template_dir}/.secrets.baseline"
 jarvis_hook_template="${template_dir}/hooks/pre-commit"
+jarvis_pre_push_template="${template_dir}/hooks/pre-push"
 
-for f in "${config_template}" "${baseline_template}" "${jarvis_hook_template}"; do
+for f in "${config_template}" "${baseline_template}" "${jarvis_hook_template}" "${jarvis_pre_push_template}"; do
   [ -f "${f}" ] || { printf 'install_pre_commit: template missing: %s\n' "${f}" >&2; exit 1; }
 done
 
@@ -103,15 +107,18 @@ else
   cp "${config_template}" "${config_dst}"
 fi
 
-# JARVIS local hook — checked-in copy at .jarvis-hooks/pre-commit so the
-# `local` repo entry in .pre-commit-config.yaml has something to invoke.
+# JARVIS local hooks — checked-in copies at .jarvis-hooks/* so the
+# `local` repo entries in .pre-commit-config.yaml have something to invoke.
 mkdir -p "${target}/.jarvis-hooks"
 cp "${jarvis_hook_template}" "${target}/.jarvis-hooks/pre-commit"
 chmod +x "${target}/.jarvis-hooks/pre-commit"
+cp "${jarvis_pre_push_template}" "${target}/.jarvis-hooks/pre-push"
+chmod +x "${target}/.jarvis-hooks/pre-push"
 
 # --- pre-commit install ------------------------------------------------------
 
 ( cd "${target}" && pre-commit install --hook-type pre-commit )
+( cd "${target}" && pre-commit install --hook-type pre-push )
 
 # --- seed the secrets baseline ----------------------------------------------
 
@@ -131,14 +138,16 @@ fi
 
 cat <<SUMMARY
 JARVIS pre-commit framework installed in ${target}.
-  config:   ${target}/.pre-commit-config.yaml
-  baseline: ${target}/.secrets.baseline
-  jarvis:   ${target}/.jarvis-hooks/pre-commit
-  hook:     ${target}/.git/hooks/pre-commit  (managed by pre-commit framework)
+  config:    ${target}/.pre-commit-config.yaml
+  baseline:  ${target}/.secrets.baseline
+  jarvis:    ${target}/.jarvis-hooks/pre-commit
+  pre-push:  ${target}/.jarvis-hooks/pre-push
+  hook:      ${target}/.git/hooks/pre-commit  (managed by pre-commit framework)
+  pre-push:  ${target}/.git/hooks/pre-push    (managed by pre-commit framework)
 
 Next steps:
   - Audit .secrets.baseline for any unexpected entries
-  - git add .pre-commit-config.yaml .secrets.baseline .jarvis-hooks/pre-commit
+  - git add .pre-commit-config.yaml .secrets.baseline .jarvis-hooks/pre-commit .jarvis-hooks/pre-push
   - Commit per ADR-0005 namespace conventions
 
 Run all hooks against the working tree without committing:
