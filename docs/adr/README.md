@@ -31,7 +31,14 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | # | Title | Status | Date |
 |---|---|---|---|
 | [0001](./ADR-0001-adopt-docker-deployment.md) | Adopt Docker for service deployment | Accepted | 2026-04-19 |
-| [0006](./ADR-0006-orbstack-default-container-runtime.md) | OrbStack as default container runtime | Accepted | 2026-05-02 |
+| [0002](./ADR-0002-state-native-compute-containerized.md) | State Native, Compute Containerized | Accepted | 2026-04-20 |
+| [0003](./ADR-0003-progressive-secrets-management.md) | Progressive Secrets Management Pattern | Accepted | 2026-04-20 |
+| [0004](./ADR-0004-alpha5-execution-standards.md) | Alpha-5 Execution Standards | Accepted | 2026-04-21 |
+| [0005](./ADR-0005-adopt-multi-writer-coordination-model.md) | Adopt multi-writer coordination model | Accepted | 2026-05-01 |
+| [0006](./ADR-0006-orbstack-default-container-runtime.md) | OrbStack as default container runtime | Accepted | 2026-05-01 |
+| [0007](./ADR-0007-pull-based-gitops-sync.md) | Pull-based GitOps sync across JARVIS dev machines | Accepted | 2026-05-05 |
+| [0008](./ADR-0008-structlog-as-python-logging-standard.md) | structlog as the JARVIS Python services logging standard | Accepted | 2026-05-07 |
+| [0009](./ADR-0009-ruff-s-static-security-standard.md) | Standardize on ruff S ruleset for Python static security analysis | Accepted | 2026-05-08 |
 
 ## Template
 
