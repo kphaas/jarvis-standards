@@ -214,6 +214,66 @@ The intent — *"agent commits go through PR before reaching `main`"* — is a `
 
 **Discovery 2026-05-05 (post-rollout, v2.1).** After TD-X38 v2 applied the `jarvis-main` ruleset to all 8 repos, PR #25 (the rollout handoff itself) was unmergeable: GitHub blocked it with "New changes require approval from someone other than the last pusher." `require_last_push_approval: true` (in §A1 `pull_request` parameters) is a separation-of-duties guard meaningful for teams — *the last pusher cannot be the only approver* — but vacuous for solo dev. Ken is both the last pusher and the only authorized approver on every JARVIS PR, so set to `true` the rule blocks every merge unconditionally. Flipped to `false` in v2.1 (TD-X43); all 8 rulesets PUT in place with the corrected payload (IDs preserved). Trade-off: the rule's anti-spoof intent is dropped; acceptable because solo dev. Per `RULESET_CANONICAL.md` §D, flip back to `true` when collaborators are added — at that point the rule recovers its meaning.
 
+## §10 — Examples: `jarvis_branch` and `jarvis_pr` invocations
+
+The Layer 3 branch namespace (above) and `scripts/jarvis_branch` together make the prefix the load-bearing signal for Layer 1 enforcement. Examples below cover the four valid prefixes, the error path, and where `jarvis_branch` fits relative to per-repo wrappers.
+
+### Correct invocation per actor
+
+```sh
+# Agent work — JARVIS_AGENT=claude-code in the environment
+jarvis_branch claude-code/<descriptor>
+# Examples:
+jarvis_branch claude-code/td-x33-trait-completion
+jarvis_branch claude-code/fix/rls-audit-tail
+jarvis_branch claude-code/slab4-rls-context-fleet
+
+# Human-driven feature work
+jarvis_branch feature/<descriptor>
+jarvis_branch feature/m3-day-trading-agent
+
+# Production fix — either actor
+jarvis_branch hotfix/<descriptor>
+jarvis_branch hotfix/auth-token-expiry-2026-05-08
+
+# Non-feature maintenance — either actor
+jarvis_branch chore/<descriptor>
+jarvis_branch chore/bump-pyproject-deps
+```
+
+`jarvis_branch` enforces a clean working tree, switches to `main`, pulls `origin/main`, creates the new branch from main, and pushes with `-u origin`. After branch creation: edit, commit, then `jarvis_pr` (or `gh pr create`).
+
+### Error path: missing prefix
+
+A bare descriptor with no prefix is rejected:
+
+```sh
+$ jarvis_branch slab4-rls-context-fleet
+ERROR: Branch name 'slab4-rls-context-fleet' must start with one of: feature/ claude-code/ hotfix/ chore/
+$ echo $?
+4
+```
+
+Exit code `4` is the prefix-rejection signal; per-repo wrappers (e.g. `jarvisalpha_commit.sh`) reuse the same code so callers can trap it uniformly.
+
+### Trait-aware enforcement: P-trait must PR, F-trait can push direct
+
+Layer 3 prefixes apply uniformly, but the consequence of skipping the branch step depends on the repo's traits:
+
+| Trait | Repos | Direct push to `main` allowed? | Branch + PR required? |
+|---|---|---|---|
+| `F` Fan-out (alone) | (none currently) | Yes (humans only) | No |
+| `B` Branch-safety | `jarvis-family`, `jarvis-council`, `jarvis-print-copilot` | No | Yes (Layer 1 / DEBT-027) |
+| `F` + `B` | `jarvis-alpha`, `jarvis-forge` | No (Sandbox + agents) | Yes; fan-out runs **after** PR merge |
+| `P` PR-only | `jarvis-financial`, `jarvis-standards` | No (everyone) | Yes; PR review IS the gate |
+| `P` + `D` | `jarvis-data-sources` | No | Yes; consumers pin to merged SHA |
+
+For F+B repos, agents must branch (Layer 1) AND fan-out is gated behind PR merge — the post-merge `*_deploy.sh` script enforces "on main + clean + HEAD == origin/main" before SSH'ing to nodes. For P-trait repos, no fan-out exists; the GitHub PR review IS the only deployment gate.
+
+### Per-repo wrappers
+
+Repos with custom commit pipelines (Ruff, UI build, fan-out) wrap `jarvis_branch` indirectly. Example: `jarvisalpha_commit.sh` does not call `jarvis_branch` itself — the human runs `jarvis_branch` once at the start of work, then `jarvisalpha_commit.sh` is invoked on the resulting prefixed branch. The wrapper's branch-guard re-checks the same prefix list and exit code (`4` for bad prefix, `1` for `main`) so the rule remains uniform whether enforced at branch-creation time or commit time. Fan-out is split out into the post-merge `jarvisalpha_deploy.sh` so the F-trait fan-out cannot run on an unreviewed commit.
+
 ## References
 
 - `DEPLOYMENT.md` (this repo) — operational runbook: branch protection settings, commit-script trait switches, propagate.config schema, per-repo adoption procedure
