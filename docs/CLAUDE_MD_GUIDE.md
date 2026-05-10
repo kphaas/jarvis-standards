@@ -38,6 +38,16 @@ Skip these for repos without runtime code.
 
 ---
 
+## ADR references — resolution policy
+
+When a CLAUDE.md mentions an ADR, use one of these forms:
+
+1. **Bare reference** — `ADR-XXXX`. Must resolve to an existing accepted file at `docs/adr/ADR-XXXX-*.md` in the same repo (or a clearly named upstream, e.g. `jarvis-standards/ADR-0005`).
+2. **Forward reference** — `future ADR-XXXX (tracked as TASK-XXX)`. Use for planned-but-not-drafted ADRs. The `(tracked as TASK-XXX)` qualifier is required and must point to a real `docs/tasks/` entry.
+3. **Amendment reference** — `ADR-XXXX amendment` (or `ADR amendment to ADR-XXXX`). Use for in-flight changes to an existing accepted ADR.
+
+A bare `ADR-XXXX` that does not resolve is a defect. The two qualified forms exist precisely so readers can distinguish "not there yet" from "broken link."
+
 ## Tasks vs Handoffs
 
 Two parallel directories, different audiences:
