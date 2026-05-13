@@ -1,7 +1,7 @@
 # ADR-0010: Cross-Repo Runtime Bridge Contract
 
 **Repo:** `jarvis-standards`
-**Status:** Proposed (pending review)
+**Status:** Accepted (§8 superseded by ADR-0011)
 **Date:** 2026-05-09
 **Author:** Ken Haas (architecture reviewer: Claude Opus 4.7)
 **Supersedes:** —
@@ -420,6 +420,8 @@ Drills documented in `jarvis-standards/docs/runbooks/bridge-chaos-drill.md` (for
 ---
 
 ## 8. Failure Modes and Mitigations
+
+> **⚠️ AMENDMENT 2026-05-12:** Failure-mode semantics in this section are superseded by [ADR-0011: Kill-Switch Failure Semantics](./ADR-0011-kill-switch-failure-semantics.md). The endpoint contract (shape, auth, polling cadence guidance) defined elsewhere in this ADR remains authoritative. Refer to ADR-0011 for: mode-aware fail-open / fail-closed behavior, poll cadence (30s / 90s TTL), halt behavior, operator recovery, and mode transition gates.
 
 | Failure | Symptom | Caller behavior | Mitigation |
 |---|---|---|---|
