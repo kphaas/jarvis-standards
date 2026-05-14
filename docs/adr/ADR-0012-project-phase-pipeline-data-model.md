@@ -550,7 +550,7 @@ CREATE TABLE IF NOT EXISTS phases (
     target_repo     TEXT NOT NULL,
     target_branch   TEXT NOT NULL DEFAULT 'main',
     current_stage   TEXT NOT NULL CHECK(current_stage IN (
-        'inbox','preflight','needs_input','aider','claude','council','pr','merged','failed'
+        'inbox','preflight','needs_input','aider','claude','council','pr','merged','failed','skipped'
     )),
     github_issue    INTEGER,
     phase_md_path   TEXT NOT NULL,
@@ -671,23 +671,53 @@ re-ask back to `claude` for a fix.
 stateDiagram-v2
     [*] --> inbox
     inbox --> preflight
+    inbox --> skipped : upstream failed
     preflight --> needs_input : has questions
     needs_input --> preflight : resolved
     preflight --> failed : hard fail
     preflight --> aider
+    preflight --> skipped : upstream failed
+    needs_input --> skipped : upstream failed
     aider --> claude
+    aider --> skipped : upstream failed
     claude --> council : decisions raised
     claude --> pr : no decisions
+    claude --> skipped : upstream failed
     council --> claude : re-ask
     council --> pr : approved
+    council --> skipped : upstream failed
     pr --> merged
     pr --> failed : CI fail
     merged --> [*]
     failed --> [*]
+    skipped --> [*]
 ```
 
 A transition that doesn't appear in the diagram is **invalid** and must
 emit a `failure` event (§4.7) instead of mutating `current_stage`.
+
+**Dependency-failure policy: hard-skip (default)**
+
+When any phase reaches the terminal `failed` stage, all transitive
+downstream phases (phases whose `depends_on` resolves to the failed
+phase) transition directly to `skipped` from whatever non-terminal
+stage they currently occupy.
+
+The transition is driven by the project_runner during topological
+iteration, recorded via `record_phase_stage_transition`. The
+`stage_transition` activity_event payload carries:
+
+    {reason: "upstream_failed", upstream_phase_id: "<phase-id>"}
+
+Phases already in `pr` stage when an upstream fails are not
+interrupted — the PR runs to its natural `merged`/`failed` outcome.
+
+Alternative policies (soft-block, continue-anyway, per-project-
+configurable) were considered and rejected during the PR 2b
+discovery review. Hard-skip was chosen because the state column
+must tell the truth at a glance: leaving a dependent phase in
+`inbox` indefinitely creates ambiguity between "not yet started"
+and "blocked forever."
 
 ---
 
