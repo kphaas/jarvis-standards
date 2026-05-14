@@ -674,6 +674,7 @@ stateDiagram-v2
     inbox --> skipped : upstream failed
     preflight --> needs_input : has questions
     needs_input --> preflight : resolved
+    needs_input --> failed : fatal error
     preflight --> failed : hard fail
     preflight --> aider
     preflight --> skipped : upstream failed
@@ -685,6 +686,7 @@ stateDiagram-v2
     claude --> skipped : upstream failed
     council --> claude : re-ask
     council --> pr : approved
+    council --> failed : fatal error
     council --> skipped : upstream failed
     pr --> merged
     pr --> failed : CI fail
@@ -718,6 +720,20 @@ discovery review. Hard-skip was chosen because the state column
 must tell the truth at a glance: leaving a dependent phase in
 `inbox` indefinitely creates ambiguity between "not yet started"
 and "blocked forever."
+
+**Side-effect stage failure edges (orphan recovery prerequisite)**
+
+The state machine carries explicit `→ failed` transitions from every
+stage where a process crash, LLM error, or stuck activity can leave a
+phase in an unrecoverable runtime state: `preflight`, `aider`,
+`claude`, `needs_input`, `council`, and `pr`. Stages whose only
+operations are pure data reads (`inbox`) do not need a direct
+`→ failed` edge — they cannot orphan.
+
+The project_runner's orphan recovery sweep relies on these edges:
+phases stuck in a side-effect stage past the grace period are
+transitioned `<stage> → failed` with payload
+`{reason: "orphan_recovery_failed", grace_exceeded_seconds: <N>}`.
 
 ---
 
