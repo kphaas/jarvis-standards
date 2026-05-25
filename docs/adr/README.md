@@ -43,7 +43,8 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | [0011](./ADR-0011-spec-md-format-standard.md) | Spec.md Format Standard for Forge Pipeline Adoption | Accepted | 2026-05-12 |
 | [0012](./ADR-0012-project-phase-pipeline-data-model.md) | Project / Phase Pipeline Data Model | Proposed | 2026-05-13 |
 | [0013](./ADR-0013-forge-autonomous-execution-and-merge-gate.md) | Forge Autonomous-Pass Execution Model & Multi-Phase Merge-Gate | Proposed | 2026-05-19 |
-| [0014](./ADR-0014-mattermost-ops-chatops-surface.md) | Mattermost as the JARVIS Ops ChatOps Surface | Proposed | 2026-05-25 |
+| [0014](./ADR-0014-operator-decision-artifacts.md) | Operator Decision Artifacts | Proposed | 2026-05-25 |
+| [0015](./ADR-0015-mattermost-ops-chatops-surface.md) | Mattermost as the JARVIS Ops ChatOps Surface | Proposed | 2026-05-25 |
 
 ## Template
 

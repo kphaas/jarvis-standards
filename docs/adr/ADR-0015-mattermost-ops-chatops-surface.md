@@ -1,4 +1,4 @@
-# ADR-0014: Mattermost as the JARVIS Ops ChatOps Surface
+# ADR-0015: Mattermost as the JARVIS Ops ChatOps Surface
 
 **Repo:** `jarvis-standards`
 **Status:** Proposed
