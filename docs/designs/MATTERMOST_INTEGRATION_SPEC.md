@@ -4,7 +4,7 @@
 **Owner:** Ken Haas  
 **Date:** 2026-05-25  
 **Target:** `jarvis-standards`  
-**Related:** ADR-0014, ADR-0001, ADR-0002, ADR-0003, ADR-0004, Alpha-5 migration plan
+**Related:** ADR-0015, ADR-0001, ADR-0002, ADR-0003, ADR-0004, Alpha-5 migration plan
 
 ---
 
