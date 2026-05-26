@@ -21,10 +21,22 @@ def test_alpha_port_methods_async() -> None:
 
 
 def test_llm_port_methods_present() -> None:
-    expected = {"complete", "chat", "estimate_cost", "name", "requires_baa"}
-    actual = {m for m in dir(LLMPort) if not m.startswith("_")}
+    expected = {"complete", "chat", "estimate_cost"}
+    actual = {
+        m for m in dir(LLMPort) if not m.startswith("_") and callable(getattr(LLMPort, m, None))
+    }
     missing = expected - actual
-    assert not missing, f"LLMPort missing members: {missing}"
+    assert not missing, f"LLMPort missing methods: {missing}"
+
+
+def test_llm_port_required_attributes_declared() -> None:
+    expected = {"name": str, "requires_baa": bool}
+    actual = LLMPort.__annotations__
+    for attr_name, attr_type in expected.items():
+        assert attr_name in actual, f"LLMPort missing annotation: {attr_name}"
+        assert actual[attr_name] is attr_type, (
+            f"LLMPort.{attr_name} should be {attr_type}, got {actual[attr_name]}"
+        )
 
 
 def test_llm_port_async_methods() -> None:

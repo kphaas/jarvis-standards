@@ -5,9 +5,12 @@ Security invariants (enforced by adapter implementations):
   * No response cached to disk without explicit cacheable=True flag.
   * No PHI in raised exceptions — sanitize before bubbling.
   * BAA gate: adapters requiring BAA refuse instantiation if baa_verified=False.
-"""
 
-from __future__ import annotations
+Note: this module does NOT use ``from __future__ import annotations`` so that
+``LLMPort.__annotations__`` stores real type objects (not strings). The shape
+test in tests/test_ports_protocol.py inspects __annotations__ to assert the
+required ``name``/``requires_baa`` attributes exist with the right types.
+"""
 
 from decimal import Decimal
 from typing import Any, Protocol, TypedDict, runtime_checkable
@@ -47,8 +50,8 @@ class ChatResponse(TypedDict):
 class LLMPort(Protocol):
     """Canonical port for LLM invocations."""
 
-    name: str = ""
-    requires_baa: bool = False
+    name: str
+    requires_baa: bool
 
     async def complete(
         self,
