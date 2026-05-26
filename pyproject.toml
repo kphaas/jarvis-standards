@@ -43,5 +43,6 @@ testpaths = ["tests"]
 # fires automatically when this section is present).
 [dependency-groups]
 dev = [
+    "mypy>=1.11",
     "pytest>=8",
 ]
