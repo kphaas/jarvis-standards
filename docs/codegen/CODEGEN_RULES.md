@@ -1,0 +1,25 @@
+## Codegen Rules
+Source of truth: ADR-0019 (Discovery-First) + ADR-0020 (Anti-Slop) in jarvis-standards/docs/adr/. Generated — do not edit by hand.
+
+Before coding (ADR-0019):
+- Read files_to_touch + their direct dependencies before editing. Verify signatures, columns, config keys, and patterns by READING — never assume from memory or the spec.
+- Reuse existing helpers; do not reinvent.
+- If the spec conflicts with reality (missing/different symbol, column, endpoint) → STOP, surface needs_input. Do not improvise.
+- Edit only files_to_touch. Discovery scope = edit scope.
+
+Quality floor — every bar is a gate (ADR-0020):
+1. Complete — no untracked stubs (TODO/FIXME/pass-stub/NotImplementedError). Defer only via a filed TD referenced inline: TODO(TD-###). Else → needs_input.
+2. Real error handling — no bare except / silent swallow; match the repo's pattern.
+3. Tested — new behavior gets tests; fixes get a regression test.
+4. Conform to existing patterns (discovered first). No second way to do an existing thing.
+5. Verified APIs — never call an unconfirmed symbol/endpoint/column.
+6. DRY — reuse discovered helpers.
+7. Edge cases — handle empty/None/error inputs.
+8. YAGNI — minimal change meeting acceptance criteria; no speculative abstraction.
+9. Security — no hardcoded secrets/IPs/tokens/certs; secrets via get_secret(); never log secrets.
+10. Observable — repo structured logging; no leftover print/debug.
+11. In-scope — only files_to_touch; no drive-by refactors.
+12. Commit hygiene — ADR-0005 trailers; no Co-authored-by; title ≤70 chars.
+13. Documented interfaces — docstrings on public functions/APIs.
+14. Migration-safe — schema/API changes reversible + backward-compatible.
+15. CI-green — format/lint/type/test/scanners pass before merge.
