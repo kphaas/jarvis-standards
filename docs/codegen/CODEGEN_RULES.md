@@ -8,18 +8,19 @@ Before coding (ADR-0019):
 - Edit only files_to_touch. Discovery scope = edit scope.
 
 Quality floor — every bar is a gate (ADR-0020):
-1. Complete — no untracked stubs (TODO/FIXME/pass-stub/NotImplementedError). Defer only via a filed TD referenced inline: TODO(TD-###). Else → needs_input.
-2. Real error handling — no bare except / silent swallow; match the repo's pattern.
-3. Tested — new behavior gets tests; fixes get a regression test.
-4. Conform to existing patterns (discovered first). No second way to do an existing thing.
-5. Verified APIs — never call an unconfirmed symbol/endpoint/column.
-6. DRY — reuse discovered helpers.
-7. Edge cases — handle empty/None/error inputs.
-8. YAGNI — minimal change meeting acceptance criteria; no speculative abstraction.
-9. Security — no hardcoded secrets/IPs/tokens/certs; secrets via get_secret(); never log secrets.
-10. Observable — repo structured logging; no leftover print/debug.
-11. In-scope — only files_to_touch; no drive-by refactors.
-12. Commit hygiene — ADR-0005 trailers; no Co-authored-by; title ≤70 chars.
-13. Documented interfaces — docstrings on public functions/APIs.
-14. Migration-safe — schema/API changes reversible + backward-compatible.
-15. CI-green — format/lint/type/test/scanners pass before merge.
+Tiers: [CI] deterministic gate · [LLM] review judgment · [CI+LLM] both.
+1. Complete — no untracked stubs (TODO/FIXME/pass-stub/NotImplementedError). Defer only via a filed TD referenced inline: TODO(TD-###). Else → needs_input. [LLM]
+2. Real error handling — no bare except / silent swallow; match the repo's pattern. [CI+LLM]
+3. Tested — new behavior gets tests; fixes get a regression test. [CI]
+4. Conform to existing patterns (discovered first). No second way to do an existing thing. [LLM]
+5. Verified APIs — never call an unconfirmed symbol/endpoint/column. [LLM]
+6. DRY — reuse discovered helpers. [LLM]
+7. Edge cases — handle empty/None/error inputs. [LLM]
+8. YAGNI — minimal change meeting acceptance criteria; no speculative abstraction. [LLM]
+9. Security — no hardcoded secrets/IPs/tokens/certs; secrets via get_secret(); never log secrets. [CI]
+10. Observable — repo structured logging; no leftover print/debug. [CI+LLM]
+11. In-scope — only files_to_touch; no drive-by refactors. [CI+LLM]
+12. Commit hygiene — ADR-0005 trailers; no Co-authored-by; title ≤70 chars. [CI]
+13. Documented interfaces — docstrings on public functions/APIs. [LLM]
+14. Migration-safe — schema/API changes reversible + backward-compatible. [LLM]
+15. CI-green — format/lint/type/test/scanners pass before merge. [CI]
