@@ -56,7 +56,7 @@ These are engineering controls that SUPPORT HIPAA / FSI — NOT legal compliance
 
 - Immutable audit trail on every financial action/decision.
 - Idempotent money operations; no partial or silent failure on money paths.
-- Kill-switch / circuit-breaker + pre-trade validation gates honored (ADR-0011).
+- Kill-switch / circuit-breaker + pre-trade validation gates honored (per jarvis-financial's kill-switch / pre-trade governance ADR).
 - Data-integrity and reconciliation checks; segregation of duties.
 - No financial credentials/keys in code.
 
