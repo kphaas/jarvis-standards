@@ -1,5 +1,5 @@
 ## Codegen Rules
-Source of truth: ADR-0019 (Discovery-First) + ADR-0020 (Anti-Slop) in jarvis-standards/docs/adr/. Generated — do not edit by hand.
+Source of truth: ADR-0019 (Discovery-First) + ADR-0020 (Anti-Slop) in jarvis-standards/docs/adr/. Canonical — edit here in jarvis-standards; consumed read-only by forge.
 
 Before coding (ADR-0019):
 - Read files_to_touch + their direct dependencies before editing. Verify signatures, columns, config keys, and patterns by READING — never assume from memory or the spec.
