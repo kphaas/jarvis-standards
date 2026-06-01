@@ -39,6 +39,12 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | [0007](./ADR-0007-pull-based-gitops-sync.md) | Pull-based GitOps sync across JARVIS dev machines | Accepted | 2026-05-05 |
 | [0008](./ADR-0008-structlog-as-python-logging-standard.md) | structlog as the JARVIS Python services logging standard | Accepted | 2026-05-07 |
 | [0009](./ADR-0009-ruff-s-static-security-standard.md) | Standardize on ruff S ruleset for Python static security analysis | Accepted | 2026-05-08 |
+| [0010](./ADR-0010-cross-repo-runtime-bridge-contract.md) | Cross-Repo Runtime Bridge Contract | Proposed | 2026-05-09 |
+| [0011](./ADR-0011-spec-md-format-standard.md) | Spec.md Format Standard for Forge Pipeline Adoption | Accepted | 2026-05-12 |
+| [0012](./ADR-0012-project-phase-pipeline-data-model.md) | Project / Phase Pipeline Data Model | Proposed | 2026-05-13 |
+| [0013](./ADR-0013-forge-autonomous-execution-and-merge-gate.md) | Forge Autonomous-Pass Execution Model & Multi-Phase Merge-Gate | Proposed | 2026-05-19 |
+| [0014](./ADR-0014-operator-decision-artifacts.md) | Operator Decision Artifacts | Proposed | 2026-05-25 |
+| [0015](./ADR-0015-mattermost-ops-chatops-surface.md) | Mattermost as the JARVIS Ops ChatOps Surface | Proposed | 2026-05-25 |
 
 ## Template
 

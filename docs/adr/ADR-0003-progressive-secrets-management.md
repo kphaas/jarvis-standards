@@ -185,6 +185,31 @@ Full enterprise-grade vault deployment.
 | F-056 | Evaluate Infisical vs Bitwarden Secrets Manager (pick + deploy) | 5c | P3 |
 | F-057 | SOPS + age for encrypted-config-in-git (optional complement) | N/A | P3 |
 
+## Pilot status (added 2026-05-25)
+
+Council pioneers the per-service `~/jarvis/secrets.d/<service>/` pattern as of Stage 2 Deliverable A (jarvis-council PR #24, SHA `380d209`).
+
+### Current state
+
+| Service | Secrets location | Pattern |
+|---|---|---|
+| Council (NATS broker creds) | `~/jarvis/secrets.d/nats/*.creds` (Brain) | Phase 5a per-service dir |
+| Alpha | `~/jarvis/.secrets` | monolithic (legacy) |
+| Forge | `~/.secrets` (Sandbox-specific path) | monolithic (legacy) |
+| Family | `~/jarvis/.secrets` | monolithic (legacy) |
+
+### Migration plan
+
+Alpha + Forge + Family migrate to `~/jarvis/secrets.d/<service>/` during **Alpha-5 Phase 5.0**. No retroactive change until then — keeps blast radius small and avoids touching live runtime services in a follow-up cycle.
+
+### Rationale
+
+Council had a path collision: `~/jarvis/.secrets` already existed as a file (the env source consumed by `council_commit.sh` and other tooling), so the per-service `.creds` files could not be written into a matching `.secrets/` directory. The forcing function ended up validating the Phase 5a per-service-dir pattern ahead of schedule — the pattern works as designed, the directory permissions (`700` parent, `600` files) hold, and the F-051 plan can proceed for Alpha/Forge/Family with one less unknown.
+
+### Manifest (F-053) not yet required
+
+Council's pilot consists of two `.creds` files in one service-scoped directory; the MANIFEST.md from Phase 5a § Manifest is not yet warranted. MANIFEST becomes load-bearing when multiple services share `~/jarvis/secrets.d/` and preservation scripts need a single source of truth — i.e. during the Alpha-5 Phase 5.0 migration, not before.
+
 ## References
 
 - ADR-0001: Adopt Docker deployment

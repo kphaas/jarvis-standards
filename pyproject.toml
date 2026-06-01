@@ -1,0 +1,48 @@
+[project]
+name = "jarvis-standards"
+version = "0.1.0"
+description = "Cross-repo conventions, ADRs, and canonical port interfaces for JARVIS modules."
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ports*"]
+
+# ── Type-checking ─────────────────────────────────────────────────────
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["ports"]
+warn_unused_configs = true
+
+# ── Lint / format ─────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Conservative starting set — protocol modules are interface-only and
+# tests only check shape, so we don't need every PYL rule firing.
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately use getattr with constant names for symmetry with
+# the dynamic-iteration loops in the same file (lines 18-21, 30-33).
+"tests/*" = ["B009"]
+
+# ── Tests ─────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+# ── Dev deps (PEP 735) ────────────────────────────────────────────────
+# Picked up by the JARVIS substrate CI workflow (TD-X35: `uv sync --group dev`
+# fires automatically when this section is present).
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8",
+]
