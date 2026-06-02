@@ -1,0 +1,88 @@
+# JARVIS node capability registry — capability-only, keyed by Tailscale hostname.
+#
+# This file holds HARDWARE CAPABILITY only. Network addressing stays in each
+# consuming repo's node_addresses.py (no IPs here — ADR-0003 secrets rule).
+#
+# Consumed by: jarvis_standards.adapters.model_fit.pure_python (model-fit check).
+# Schema (per host):
+#   chip              : str   — marketing name, informational only.
+#   ram_gb            : int   — total unified RAM in GB.
+#   reserved_os_gb    : int   — RAM withheld from model use: OS + always-on
+#                               resident tooling headroom. NOT a physical
+#                               constant — a tunable seed (ADR-0021 T1/T2).
+#   mem_bandwidth_gbps: int   — peak memory bandwidth; drives the first-order
+#                               tokens/sec estimate (tps ≈ bandwidth / active
+#                               weight bytes). Heuristic seed (ADR-0021 T1/T6).
+#   unified           : bool  — true on Apple Silicon (no separate VRAM pool):
+#                               usable = ram_gb - reserved_os_gb.
+#   metal             : bool  — Metal GPU available. false → CPU-only path.
+#   ollama_native     : bool  — runs Ollama locally (informational).
+
+jarvis-brain:
+  chip: M2 Ultra
+  # CONFIRMED 128 GB (ADR-0021 T3, Ken 2026-06-01): the memory doc and the v2
+  # docx agree on 128; Arch Review V1's 192 is the stale outlier (V1 to be
+  # corrected to 128 separately). Not a seed — a settled hardware fact.
+  ram_gb: 128
+  reserved_os_gb: 16
+  mem_bandwidth_gbps: 800
+  unified: true
+  metal: true
+  ollama_native: true
+
+jarvis-gateway:
+  chip: M4
+  ram_gb: 16
+  reserved_os_gb: 4
+  mem_bandwidth_gbps: 120
+  unified: true
+  metal: true
+  ollama_native: false
+
+jarvis-endpoint:
+  chip: M4
+  ram_gb: 24
+  reserved_os_gb: 5
+  mem_bandwidth_gbps: 120
+  unified: true
+  metal: true
+  ollama_native: false
+
+jarvis-sandbox:
+  chip: M1 (Studio)
+  ram_gb: 32
+  # Higher reserve than a 32 GB box would otherwise warrant: this is the
+  # codegen box — Aider + Ollama + Claude Code are co-resident during a run
+  # (ADR-0021 T2). This is why qwen3-coder:30b lands `tight` here, not `fits`.
+  reserved_os_gb: 10
+  mem_bandwidth_gbps: 400
+  unified: true
+  metal: true
+  ollama_native: true
+
+jarvis-air:
+  chip: M4 (Air)
+  ram_gb: 16
+  reserved_os_gb: 4
+  mem_bandwidth_gbps: 120
+  unified: true
+  metal: true
+  ollama_native: false
+
+forge-mini:
+  chip: M4
+  ram_gb: 32
+  reserved_os_gb: 6
+  mem_bandwidth_gbps: 120
+  unified: true
+  metal: true
+  ollama_native: true
+
+unraid:
+  chip: Intel
+  ram_gb: 32
+  reserved_os_gb: 6
+  mem_bandwidth_gbps: 50
+  unified: false
+  metal: false
+  ollama_native: false

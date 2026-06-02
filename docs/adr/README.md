@@ -45,6 +45,7 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | [0013](./ADR-0013-forge-autonomous-execution-and-merge-gate.md) | Forge Autonomous-Pass Execution Model & Multi-Phase Merge-Gate | Proposed | 2026-05-19 |
 | [0014](./ADR-0014-operator-decision-artifacts.md) | Operator Decision Artifacts | Proposed | 2026-05-25 |
 | [0015](./ADR-0015-mattermost-ops-chatops-surface.md) | Mattermost as the JARVIS Ops ChatOps Surface | Proposed | 2026-05-25 |
+| [0021](./ADR-0021-model-fit-check.md) | Model-fit check — validate local-model pins against node hardware | Proposed | 2026-06-01 |
 
 ## Template
 

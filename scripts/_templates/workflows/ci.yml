@@ -166,8 +166,14 @@ jobs:
           else
             DEV_FLAG=""
           fi
-          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
-          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
+          # Lockfile enforcement (ADR-0021): when a committed uv.lock is
+          # present, add --frozen so CI installs the pinned versions from the
+          # lock and never silently re-resolves. Guarded on presence so repos
+          # without a committed lock keep re-resolving as before — a no-op for
+          # them, enforcement for repos (like standards) that pin a runtime dep.
+          if [ -f uv.lock ]; then FROZEN_FLAG="--frozen"; else FROZEN_FLAG=""; fi
+          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}' frozen='${FROZEN_FLAG}'"
+          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG} ${FROZEN_FLAG}
 
       - name: mypy
         if: steps.gate.outputs.skip == 'false'
@@ -231,8 +237,14 @@ jobs:
           else
             DEV_FLAG=""
           fi
-          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
-          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
+          # Lockfile enforcement (ADR-0021): when a committed uv.lock is
+          # present, add --frozen so CI installs the pinned versions from the
+          # lock and never silently re-resolves. Guarded on presence so repos
+          # without a committed lock keep re-resolving as before — a no-op for
+          # them, enforcement for repos (like standards) that pin a runtime dep.
+          if [ -f uv.lock ]; then FROZEN_FLAG="--frozen"; else FROZEN_FLAG=""; fi
+          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}' frozen='${FROZEN_FLAG}'"
+          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG} ${FROZEN_FLAG}
 
       - name: pytest (default skips integration tests; override via vars.JARVIS_PYTEST_MARKERS)
         if: steps.gate.outputs.skip == 'false'
