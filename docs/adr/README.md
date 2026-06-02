@@ -45,6 +45,7 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | [0013](./ADR-0013-forge-autonomous-execution-and-merge-gate.md) | Forge Autonomous-Pass Execution Model & Multi-Phase Merge-Gate | Proposed | 2026-05-19 |
 | [0014](./ADR-0014-operator-decision-artifacts.md) | Operator Decision Artifacts | Proposed | 2026-05-25 |
 | [0015](./ADR-0015-mattermost-ops-chatops-surface.md) | Mattermost as the JARVIS Ops ChatOps Surface | Proposed | 2026-05-25 |
+| [0022](./ADR-0022-smithy-agent-spec-driven-authoring-orchestration.md) | Smithy Agent: Spec-Driven Project Authoring & Orchestration | Proposed | 2026-06-02 |
 
 ## Template
 
