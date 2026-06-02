@@ -3,19 +3,27 @@ name = "jarvis-standards"
 version = "0.1.0"
 description = "Cross-repo conventions, ADRs, and canonical port interfaces for JARVIS modules."
 requires-python = ">=3.12"
+# PyYAML backs the model-fit check's node/model registries (ADR-0021). It is the
+# only runtime dependency the standards repo carries; everything else is stdlib.
+dependencies = [
+    "pyyaml>=6",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["ports*"]
+include = ["ports*", "jarvis_standards*"]
 
 # ── Type-checking ─────────────────────────────────────────────────────
+# files covers both the interface package (ports) and the runtime package
+# (jarvis_standards); without the latter, --strict would silently never check
+# the model-fit check (ADR-0021, fix #1 — correctness).
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["ports"]
+files = ["ports", "jarvis_standards"]
 warn_unused_configs = true
 
 # ── Lint / format ─────────────────────────────────────────────────────
@@ -45,4 +53,6 @@ testpaths = ["tests"]
 dev = [
     "mypy>=1.11",
     "pytest>=8",
+    "hypothesis>=6",
+    "types-PyYAML>=6",
 ]

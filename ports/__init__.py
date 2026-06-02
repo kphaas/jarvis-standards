@@ -26,6 +26,11 @@ from .llm import (
     Completion,
     LLMPort,
 )
+from .model_fit import (
+    FitStatus,
+    FitVerdict,
+    ModelFitPort,
+)
 
 __all__ = [
     "AdapterRegistry",
@@ -39,6 +44,8 @@ __all__ = [
     "ChatMessage",
     "ChatResponse",
     "Completion",
+    "FitStatus",
+    "FitVerdict",
     "LLMAdapterNotFoundError",
     "LLMCostCapError",
     "LLMError",
@@ -46,6 +53,7 @@ __all__ = [
     "LLMTimeoutError",
     "Memory",
     "MemoryTier",
+    "ModelFitPort",
     "PortError",
     "TileTokenScope",
 ]

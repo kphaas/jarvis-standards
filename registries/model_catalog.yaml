@@ -1,0 +1,70 @@
+# JARVIS local-model catalog — memory + speed inputs for the model-fit check.
+#
+# Consumed by: jarvis_standards.adapters.model_fit.pure_python.
+#
+# IMPORTANT (ADR-0021 T4): the live model PINS are NOT here — they live in the
+# consuming repos (jarvis-alpha registry / brain/tasks/dispatch.py,
+# jarvis-financial config/agents.yaml, forge codegen config). This catalog is
+# the shared CAPABILITY/SIZING reference plus a sparse set of seed assignments
+# so the check is runnable and self-testing. Cross-repo pin scanning is future
+# wiring (out of scope this PR).
+#
+# Schema (per model_ref):
+#   params_total_b   : float — total parameters in billions. Drives MEMORY.
+#   params_active_b  : float — active params/token (= total for dense models).
+#                              Drives THROUGHPUT only. For MoE, total > active.
+#   quant            : str   — one of q4 q5 q6 q8 f16 (see BYTES_PER_PARAM).
+#   ctx_max          : int   — max context window (tokens), informational/clamp.
+#   kv_per_1k_ctx_gb : float — optional; KV-cache GB per 1k context tokens.
+#                              Omitted → KV_PER_1K_DEFAULT_GB (ADR-0021 T1).
+#   notes            : str   — provenance.
+#   assigned_node    : str   — optional; production-pinned target node.
+#   production       : bool  — optional; true → checked under CLI --enforce.
+
+llama3.1:8b:
+  params_total_b: 8
+  params_active_b: 8
+  quant: q4
+  ctx_max: 131072
+  notes: Alpha llm agent.
+  assigned_node: jarvis-brain
+  production: true
+
+qwen2.5-coder:7b:
+  params_total_b: 7
+  params_active_b: 7
+  quant: q4
+  ctx_max: 32768
+  notes: Alpha code agent.
+  assigned_node: jarvis-brain
+  production: true
+
+qwen3-coder:30b:
+  params_total_b: 30
+  params_active_b: 30
+  quant: q4
+  ctx_max: 262144
+  notes: Sandbox Aider primary.
+  assigned_node: jarvis-sandbox
+  production: true
+
+qwen3.6:35b-a3b:
+  params_total_b: 35
+  params_active_b: 3
+  quant: q4
+  ctx_max: 262144
+  notes: MoE — call_code_agent swap candidate. Memory on 35b, speed on 3b.
+
+gemma4:26b-a4b:
+  params_total_b: 26
+  params_active_b: 4
+  quant: q4
+  ctx_max: 131072
+  notes: MoE — runner-up.
+
+glm-ocr:0.9b:
+  params_total_b: 0.9
+  params_active_b: 0.9
+  quant: q4
+  ctx_max: 8192
+  notes: OCRPort candidate.
