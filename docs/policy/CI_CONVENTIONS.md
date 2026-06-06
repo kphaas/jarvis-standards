@@ -11,6 +11,11 @@ Companion to `docs/policy/RULESET_CANONICAL.md` (branch protection /
 push policy) and `docs/DEPLOYMENT.md` §15.2 (substrate mechanism
 catalog).
 
+For private-repo self-hosted runner policy, see
+`docs/policy/TRUSTED_SANDBOX_CI.md`. That document covers the Sandbox trust
+boundary, repo enable variable, branch-prefix gate, and Forge-owned runner
+fleet monitoring.
+
 ## Marker convention for integration tests (TD-X48)
 
 The substrate's `test` job invokes pytest with marker filter
