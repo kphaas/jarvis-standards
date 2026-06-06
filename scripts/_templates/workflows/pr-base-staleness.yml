@@ -43,9 +43,14 @@ jobs:
             git fetch --no-tags origin "${BASE_REF}"
 
           base_sha="$(git merge-base "${HEAD_SHA}" "origin/${BASE_REF}")"
+          base_tip="$(git rev-parse "origin/${BASE_REF}")"
           base_ts="$(git show -s --format=%ct "${base_sha}")"
           now_ts="$(date -u +%s)"
           age_days=$(( (now_ts - base_ts) / 86400 ))
+          if [ "${base_sha}" = "${base_tip}" ]; then
+            echo "Merge-base is the current ${BASE_REF} tip; treating base as fresh for dormant repo."
+            age_days=0
+          fi
 
           echo "base_sha=${base_sha}"   >> "${GITHUB_OUTPUT}"
           echo "base_ts=${base_ts}"     >> "${GITHUB_OUTPUT}"
