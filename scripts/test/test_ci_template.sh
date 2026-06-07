@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Tests for the native-gated workflow template set.
 #
-# GitHub-hosted Actions should stay cheap: secret scanning and PR/base
-# guardrails run on GitHub, while expensive trusted checks run in Forge native
-# CI and report as `forge/native-ci-shadow`.
+# GitHub-hosted Actions should stay cheap: one combined guardrail job runs on
+# GitHub, while expensive trusted checks run in Forge native CI and report as
+# `forge/native-ci-shadow`.
 
 set -u
 
@@ -40,10 +40,16 @@ else
 fi
 
 jobs="$(job_names "${ci}")"
-if [ "${jobs}" = "secret-scan" ]; then
-  ok "hosted ci.yml has only the secret-scan job"
+if [ "${jobs}" = "guardrails" ]; then
+  ok "hosted ci.yml has only the combined guardrails job"
 else
-  bad "hosted ci.yml has only the secret-scan job" "found jobs: ${jobs}"
+  bad "hosted ci.yml has only the combined guardrails job" "found jobs: ${jobs}"
+fi
+
+if grep -qF "name: github/guardrails" "${ci}"; then
+  ok "guardrails job reports github/guardrails"
+else
+  bad "guardrails job reports github/guardrails" "job name missing"
 fi
 
 if grep -qF "detect-secrets scan --baseline .secrets.baseline" "${ci}"; then
@@ -56,6 +62,14 @@ if grep -qF "fetch-depth: 0" "${ci}"; then
   ok "secret-scan fetches history for baseline comparison"
 else
   bad "secret-scan fetches history for baseline comparison" "fetch-depth: 0 missing"
+fi
+
+if grep -qF "Compute PR base age" "${ci}" \
+   && grep -qF "jarvis:pr-base-staleness" "${ci}" \
+   && grep -qF ">= 30" "${ci}"; then
+  ok "guardrails job includes base-staleness enforcement"
+else
+  bad "guardrails job includes base-staleness enforcement" "base-age steps missing"
 fi
 
 for removed in "  lint:" "  typecheck:" "  test:" "  ci-pass:"; do
@@ -73,21 +87,22 @@ else
 fi
 
 if grep -qF "forge/native-ci-shadow" "${readme}" \
-   && grep -qF "secret-scan" "${readme}" \
-   && grep -qF "base-staleness" "${readme}"; then
+   && grep -qF "github/guardrails" "${readme}" \
+   && ! grep -qF '`base-staleness`' "${readme}"; then
   ok "workflow README documents native-gated required checks"
 else
   bad "workflow README documents native-gated required checks" \
-    "README must mention forge/native-ci-shadow, secret-scan, and base-staleness"
+    "README must mention forge/native-ci-shadow and github/guardrails"
 fi
 
 if grep -qF '"context": "forge/native-ci-shadow"' "${ruleset}" \
-   && grep -qF '"context": "secret-scan"' "${ruleset}" \
-   && grep -qF '"context": "base-staleness"' "${ruleset}"; then
+   && grep -qF '"context": "github/guardrails"' "${ruleset}" \
+   && ! grep -qF '"context": "secret-scan"' "${ruleset}" \
+   && ! grep -qF '"context": "base-staleness"' "${ruleset}"; then
   ok "ruleset canonical documents native-gated required checks"
 else
   bad "ruleset canonical documents native-gated required checks" \
-    "ruleset payload must include forge/native-ci-shadow, secret-scan, and base-staleness"
+    "ruleset payload must include forge/native-ci-shadow and github/guardrails only"
 fi
 
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"

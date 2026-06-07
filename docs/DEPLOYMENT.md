@@ -997,7 +997,7 @@ server-side checks — neither is sufficient alone.
 | `commit-msg` hook (TD-X22) | `scripts/_templates/hooks/commit-msg` | §15.2 #12 — strips the Cursor agent's `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer; non-blocking; pattern is anchored and does not affect human Co-authored-by lines |
 | `pre-commit` hook — main block (TD-X25) | `scripts/_templates/hooks/pre-commit` | §15.2 #11 — blocks any commit whose `HEAD` is `main` or `master`; allows detached HEAD so rebase / cherry-pick keep working |
 | `pre-commit` hook — namespace (TD-X24) | `scripts/_templates/hooks/pre-commit` (extended) | §15.2 #15 — agents on `feature/*` are rejected (exit 1); humans on agent namespaces (`claude-code/*` / `cursor/*` / `copilot/*`) get a stderr warning + audit log entry but the commit proceeds. Asymmetric on purpose: humans get the override hatch, agents do not. |
-| PR-base staleness check (TD-X23) | `scripts/_templates/workflows/pr-base-staleness.yml` | §15.2 #11 indirect — a stale PR base reflects abandoned work whose merge into `main` carries silent-conflict + lost-context risk. Posts an idempotent comment ≥14 days, fails the required check ≥30 days. |
+| PR-base staleness check (TD-X23) | `scripts/_templates/workflows/ci.yml` | §15.2 #11 indirect — a stale PR base reflects abandoned work whose merge into `main` carries silent-conflict + lost-context risk. The check now runs inside the combined `github/guardrails` job, posts an idempotent comment ≥14 days, and fails the required check ≥30 days. |
 | `scripts/sync_check.sh` | `scripts/sync_check.sh` | Optional read-only inspector. Reports per-repo branch / dirty state / `main` ahead-or-behind / branch base age; exit 1 if anything needs attention so it can chain into shell aliases. No fetch, no mutation. |
 | `scripts/install_hooks.sh` | `scripts/install_hooks.sh` | Bootstrap: copies both hooks into a target repo's `.git/hooks/`, prompts on conflict (override with `--force`) |
 
@@ -1009,10 +1009,10 @@ no hooks installed, and propagation from outside the clone (e.g.
 clone of a JARVIS repo on Sandbox or Air must be followed by
 `/path/to/jarvis-standards/scripts/install_hooks.sh` before the first commit.
 
-The PR-base staleness workflow is propagated by copying
-`scripts/_templates/workflows/pr-base-staleness.yml` into each consuming
-repo's `.github/workflows/`. Phase B3 will land that copy across the 6
-target repos; today only `jarvis-standards` itself runs the workflow.
+The PR-base staleness logic is propagated as part of the combined
+`scripts/_templates/workflows/ci.yml` guardrail workflow. Consuming repos should
+not keep a separate `.github/workflows/pr-base-staleness.yml`; requiring the
+single `github/guardrails` status avoids two rounded GitHub-hosted jobs per PR.
 
 ### 15.2.2 Identity detection
 
@@ -1063,7 +1063,7 @@ adopted per repo via the install scripts described in §15.2.1.
 |---|---|---|---|
 | Polling sync daemon | TD-X27 | `scripts/_templates/sync_daemon.sh` + `scripts/_templates/launchagents/com.jarvis.sync_daemon.plist.template` | Long-lived LaunchAgent on Sandbox + Air. Every interval (default 300s) walks every clone under `$HOME/jarvis-*`, fetches `origin` read-only, and fast-forwards local `main` when (and only when) the working tree is clean and `ahead==0`. Pull-based GitOps per ADR-0007. Logs to `~/.jarvis/sync_daemon.log`; never rebases, never resolves conflicts. |
 | Pre-commit framework | TD-X28 | `scripts/_templates/.pre-commit-config.yaml` + `scripts/_templates/.secrets.baseline` + `scripts/install_pre_commit.sh` | pre-commit.com framework with three hook sources: `ruff` (lint + auto-fix), `ruff-format`, Yelp `detect-secrets` (audited against `.secrets.baseline`), and a `local` repo entry that reruns the JARVIS namespace + main-block hook (TD-X24 + TD-X25) so the framework's takeover of `.git/hooks/pre-commit` does not silently drop §15.2 #11 / #15 enforcement. |
-| GitHub-hosted guardrail workflow | Native-gated CI rollout | `scripts/_templates/workflows/ci.yml` | Runs only `secret-scan` on GitHub-hosted Actions. Trusted lint/typecheck/test/build work belongs to Forge native CI on Sandbox and reports as `forge/native-ci-shadow`. Native-gated repos should require `secret-scan`, `base-staleness`, and `forge/native-ci-shadow`; do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after promotion. The old Python matrix conventions still apply to the Forge native command set and manual `trusted-sandbox-ci` backup; see `docs/policy/CI_CONVENTIONS.md`. |
+| GitHub-hosted guardrail workflow | Native-gated CI rollout | `scripts/_templates/workflows/ci.yml` | Runs one `github/guardrails` job on GitHub-hosted Actions, combining detect-secrets and PR base-staleness. Trusted lint/typecheck/test/build work belongs to Forge native CI on Sandbox and reports as `forge/native-ci-shadow`. Native-gated repos should require `github/guardrails` and `forge/native-ci-shadow`; do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after promotion. The old Python matrix conventions still apply to the Forge native command set and manual `trusted-sandbox-ci` backup; see `docs/policy/CI_CONVENTIONS.md`. |
 
 **Why pull-based, not webhook-push.** Webhook-push from GitHub Actions to
 Sandbox + Air was considered and rejected. Air is a laptop and is asleep

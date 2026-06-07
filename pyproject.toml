@@ -45,4 +45,5 @@ testpaths = ["tests"]
 dev = [
     "mypy>=1.11",
     "pytest>=8",
+    "ruff==0.15.12",
 ]
