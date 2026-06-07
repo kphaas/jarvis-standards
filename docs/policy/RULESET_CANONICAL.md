@@ -133,8 +133,7 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": true,
         "required_status_checks": [
-          { "context": "secret-scan" },
-          { "context": "base-staleness" },
+          { "context": "github/guardrails" },
           { "context": "forge/native-ci-shadow" }
         ]
       }
@@ -144,10 +143,12 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
 }
 ```
 
-The required-checks list is the **native-gated** JARVIS matrix. `secret-scan`
-and `base-staleness` stay on GitHub-hosted Actions because they are cheap and
-benefit from GitHub PR context. `forge/native-ci-shadow` is posted by Forge
-native CI on Sandbox and owns trusted lint/typecheck/test/build work.
+The required-checks list is the **native-gated** JARVIS matrix.
+`github/guardrails` is the single GitHub-hosted Actions job; it combines the
+detect-secrets baseline scan and PR base-staleness enforcement so normal PRs
+pay for one rounded hosted job instead of two. `forge/native-ci-shadow` is
+posted by Forge native CI on Sandbox and owns trusted lint/typecheck/test/build
+work.
 
 Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after a repo is
 promoted to Forge native CI. For repos whose native adoption is still pending,

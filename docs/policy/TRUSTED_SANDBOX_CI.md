@@ -59,7 +59,7 @@ hand or use Forge tooling to render the placeholders.
 4. Open a trusted `claude-code/*` or `codex/*` sample PR and verify
    `forge/native-ci-shadow` posts a green status.
 5. Promote the repo to `active` in Forge native CI and require exactly
-   `secret-scan`, `base-staleness`, and `forge/native-ci-shadow` in branch
+   `github/guardrails` and `forge/native-ci-shadow` in branch
    protection/rulesets.
 6. Keep `.github/workflows/trusted-sandbox-ci.yml` as a manual
    `workflow_dispatch` backup.
@@ -67,7 +67,7 @@ hand or use Forge tooling to render the placeholders.
 ## Cost Model
 
 Forge native CI and self-hosted runner jobs do not consume GitHub-hosted Actions
-minutes. Keep GitHub-hosted jobs for cheap checks that should remain independent
-of Sandbox health, especially `secret-scan` and `base-staleness`. Do not run
+minutes. Keep one GitHub-hosted guardrail job for checks that should remain
+independent of Sandbox health: secret scanning and PR base-staleness. Do not run
 duplicate hosted `lint`, `typecheck`, `test`, or `ci-pass` jobs after a repo is
 native-gated.

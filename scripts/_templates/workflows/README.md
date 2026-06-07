@@ -9,8 +9,7 @@ rather than the local-commit side handled by `_templates/hooks/`.
 
 | File | TD | Purpose |
 |---|---|---|
-| `pr-base-staleness.yml` | TD-X23 | Check the PR's merge-base age vs the target branch. Posts an idempotent comment when the base is ≥14 days old; fails the required check when it's ≥30 days. Catches PRs that have rotted (silent merge conflicts, lost context). |
-| `ci.yml` | Native-gated CI rollout | GitHub-hosted guardrails only: `secret-scan` runs against the detect-secrets baseline on PRs and pushes to `main`. Expensive trusted checks moved to Forge native CI on Sandbox and report as `forge/native-ci-shadow`. |
+| `ci.yml` | Native-gated CI rollout | One GitHub-hosted guardrail job: `github/guardrails` runs the detect-secrets baseline scan and PR base-staleness check. Expensive trusted checks moved to Forge native CI on Sandbox and report as `forge/native-ci-shadow`. |
 | `trusted-sandbox-ci.yml` | Sandbox runner backup | Manual `workflow_dispatch` backup for repo-owned no-secret checks on the trusted Sandbox runner. It remains available for operator fallback, but does not run automatically on PRs because Forge native CI owns the automatic trusted gate. See `docs/policy/TRUSTED_SANDBOX_CI.md`. |
 
 ## Propagation
@@ -22,14 +21,14 @@ copy workflow files by hand, or Forge renders workflow templates while the
 `propagate_scripts.sh` engine remains shell-template oriented.
 
 `jarvis-standards` itself dogfoods the workflow at
-`.github/workflows/pr-base-staleness.yml`. Any PR opened against
-`jarvis-standards`'s `main` exercises the check.
+`.github/workflows/ci.yml`. Any PR opened against `jarvis-standards`'s `main`
+exercises both the secret scan and base-staleness logic through
+`github/guardrails`.
 
 For repos promoted to Forge native CI, branch protection and repository
 rulesets should require exactly:
 
-- `secret-scan`
-- `base-staleness`
+- `github/guardrails`
 - `forge/native-ci-shadow`
 
 Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` on native-gated

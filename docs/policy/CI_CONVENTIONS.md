@@ -3,14 +3,14 @@
 Authoritative conventions for JARVIS PR checks.
 
 The GitHub-hosted workflow (`scripts/_templates/workflows/ci.yml`) is now a
-cheap guardrail workflow: it runs `secret-scan` only. The expensive trusted
+cheap guardrail workflow: it runs one `github/guardrails` job that combines the
+detect-secrets baseline scan and PR base-staleness check. The expensive trusted
 checks run on Sandbox through Forge native CI and report as
 `forge/native-ci-shadow`.
 
 Repos promoted to Forge native CI should require:
 
-- `secret-scan`
-- `base-staleness`
+- `github/guardrails`
 - `forge/native-ci-shadow`
 
 Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after native

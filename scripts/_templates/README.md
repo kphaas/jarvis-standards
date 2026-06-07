@@ -15,8 +15,7 @@ originates here.
 | `hooks/commit-msg` | hook installer | TD-X22 — strips Cursor agent's `Co-authored-by` trailer. Installed via `scripts/install_hooks.sh` into `.git/hooks/commit-msg` |
 | `hooks/pre-commit` | hook installer | TD-X25 + TD-X24 — main-block + namespace enforcement. Installed via `scripts/install_hooks.sh` into `.git/hooks/pre-commit`. Also referenced by the pre-commit framework config below as a `local` repo entry. |
 | `hooks/README.md` | docs | Installation + extension instructions for the hooks family |
-| `workflows/pr-base-staleness.yml` | workflow installer | TD-X23 — PR base staleness check. Copied into `<consumer>/.github/workflows/pr-base-staleness.yml` |
-| `workflows/ci.yml` | workflow installer | Native-gated CI rollout — GitHub-hosted guardrail workflow (`secret-scan` only). Trusted lint/typecheck/test/build work runs in Forge native CI as `forge/native-ci-shadow`. Copied into `<consumer>/.github/workflows/ci.yml` after native promotion planning. |
+| `workflows/ci.yml` | workflow installer | Native-gated CI rollout — one GitHub-hosted `github/guardrails` job for detect-secrets and PR base-staleness. Trusted lint/typecheck/test/build work runs in Forge native CI as `forge/native-ci-shadow`. Copied into `<consumer>/.github/workflows/ci.yml` after native promotion planning. |
 | `workflows/README.md` | docs | Workflow family inventory + propagation notes |
 | `.pre-commit-config.yaml` | pre-commit installer | TD-X28 — pre-commit.com framework config. Copied into consumer repo root by `scripts/install_pre_commit.sh` |
 | `.secrets.baseline` | pre-commit installer | TD-X28 — empty Yelp `detect-secrets` baseline. Seeded by `install_pre_commit.sh` via `detect-secrets scan` against the consumer repo, falls back to this template if scan fails |
