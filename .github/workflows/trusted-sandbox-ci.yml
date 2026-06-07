@@ -1,0 +1,208 @@
+name: trusted-sandbox-ci
+
+# Canonical source: jarvis-standards/scripts/_templates/workflows/trusted-sandbox-ci.yml.
+# Manual backup for repo-owned no-secret checks on the trusted Sandbox runner.
+# Forge native CI is the required automatic gate and posts
+# `forge/native-ci-shadow`; keep this workflow manual to avoid duplicate PR
+# work while retaining an operator-controlled fallback.
+#
+# Required render variables:
+# - jarvis-standards: repo-specific runner label, for example jarvis-forge.
+# - : space-separated package.json directories, or empty to auto-detect common dirs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-sandbox-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-secrets-suite:
+    name: no-secrets-suite
+    if: >-
+      vars.JARVIS_ENABLE_SANDBOX_RUNNER == 'true' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64, sandbox, "jarvis-standards", trusted]
+    timeout-minutes: 30
+    env:
+      JARVIS_JS_PROJECT_DIRS: ""
+      PYTEST_MARKERS: "${{ vars.JARVIS_PYTEST_MARKERS != '' && vars.JARVIS_PYTEST_MARKERS || 'not integration' }}"
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: Assert trusted runner context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          case "${EVENT_NAME}" in
+            pull_request)
+              if [ "${HEAD_REPO}" != "${REPOSITORY}" ]; then
+                echo "::error::Refusing self-hosted runner for fork PR ${HEAD_REPO}."
+                exit 1
+              fi
+              case "${HEAD_REF}" in
+                claude-code/*|codex/*) ;;
+                *)
+                  echo "::error::Self-hosted PR checks require claude-code/* or codex/* branches."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            workflow_dispatch)
+              echo "Manual trusted run."
+              ;;
+            *)
+              echo "::error::Unsupported event ${EVENT_NAME}."
+              exit 1
+              ;;
+          esac
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -a
+          git --version
+          python3 --version
+          node --version || true
+          npm --version || true
+
+      - name: Install uv if Python project exists
+        if: ${{ hashFiles('pyproject.toml', 'requirements*.txt', 'setup.py', 'setup.cfg') != '' }}
+        run: |
+          set -euo pipefail
+          if command -v uv >/dev/null 2>&1; then
+            uv --version
+            exit 0
+          fi
+
+          python3 -m pip install --user --upgrade uv
+          echo "${HOME}/Library/Python/3.12/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Install Python 3.12
+        if: ${{ hashFiles('pyproject.toml', 'requirements*.txt', 'setup.py', 'setup.cfg') != '' }}
+        run: |
+          set -euo pipefail
+          uv python install 3.12
+
+      - name: Sync Python dependencies
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        run: |
+          set -euo pipefail
+          WORKSPACE_FLAG=""
+          DEV_FLAG=""
+
+          if grep -q '^\[tool\.uv\.workspace\]' pyproject.toml; then
+            WORKSPACE_FLAG="--all-packages"
+          fi
+          if grep -qE '^\[dependency-groups\]|^\[tool\.uv\.dev-dependencies\]' pyproject.toml; then
+            DEV_FLAG="--group dev"
+          fi
+
+          uv sync --python 3.12 ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
+
+      - name: Python lint and format
+        if: ${{ hashFiles('pyproject.toml', 'setup.py', 'setup.cfg') != '' }}
+        run: |
+          set -euo pipefail
+          uv tool run ruff check .
+          uv tool run ruff format --check .
+
+      - name: Python typecheck
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        run: |
+          set -euo pipefail
+          if ! grep -q '^\[tool\.mypy\]' pyproject.toml; then
+            echo "[tool.mypy] not present - skipping mypy."
+            exit 0
+          fi
+          uv run --python 3.12 mypy .
+
+      - name: Python tests
+        if: ${{ hashFiles('pyproject.toml') != '' }}
+        run: |
+          set -euo pipefail
+          if [ ! -d tests ]; then
+            echo "No tests/ directory - skipping pytest."
+            exit 0
+          fi
+
+          set +e
+          uv run --python 3.12 pytest -m "${PYTEST_MARKERS}"
+          rc=$?
+          set -e
+          if [ "${rc}" -eq 5 ]; then
+            echo "::notice::No tests matched marker filter '${PYTEST_MARKERS}'."
+            exit 0
+          fi
+          exit "${rc}"
+
+      - name: JavaScript install and build
+        run: |
+          set -euo pipefail
+
+          dirs="${JARVIS_JS_PROJECT_DIRS}"
+          if [ -z "${dirs}" ] || [ "${dirs}" = "" ]; then
+            dirs=""
+            for candidate in . ui web app apps/web services/web frontend; do
+              if [ -f "${candidate}/package.json" ]; then
+                dirs="${dirs} ${candidate}"
+              fi
+            done
+          fi
+
+          if [ -z "${dirs}" ]; then
+            echo "No package.json directories found - skipping JavaScript build."
+            exit 0
+          fi
+
+          for dir in ${dirs}; do
+            if [ ! -f "${dir}/package.json" ]; then
+              echo "Skipping ${dir}: package.json missing."
+              continue
+            fi
+
+            echo "Building JavaScript project in ${dir}"
+            (
+              cd "${dir}"
+              if [ -f pnpm-lock.yaml ]; then
+                corepack enable
+                pnpm install --frozen-lockfile
+              elif [ -f yarn.lock ]; then
+                corepack enable
+                yarn install --immutable
+              elif [ -f package-lock.json ]; then
+                npm ci
+              else
+                npm install
+              fi
+
+              if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+                npm run build
+              else
+                echo "No build script in ${dir}; install check only."
+              fi
+            )
+          done
+
+      - name: Scrub transient runner paths
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${RUNNER_TEMP:-}" ] && [ -d "${RUNNER_TEMP}" ]; then
+            find "${RUNNER_TEMP}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          fi
