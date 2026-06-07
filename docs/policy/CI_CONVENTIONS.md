@@ -1,11 +1,21 @@
 # CI Conventions
 
-Authoritative conventions that the JARVIS uniform CI workflow
-(`scripts/_templates/workflows/ci.yml`, propagated to every consumer
-repo per `docs/DEPLOYMENT.md` §15.2) assumes about repo source code and
-test layout. Repos that diverge from these conventions either need a
-local override or will see substrate CI fail in ways the substrate
-cannot diagnose.
+Authoritative conventions for JARVIS PR checks.
+
+The GitHub-hosted workflow (`scripts/_templates/workflows/ci.yml`) is now a
+cheap guardrail workflow: it runs `secret-scan` only. The expensive trusted
+checks run on Sandbox through Forge native CI and report as
+`forge/native-ci-shadow`.
+
+Repos promoted to Forge native CI should require:
+
+- `secret-scan`
+- `base-staleness`
+- `forge/native-ci-shadow`
+
+Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after native
+promotion. The source-code and test-layout conventions below still apply to the
+Forge native command set and to the manual `trusted-sandbox-ci` backup workflow.
 
 Companion to `docs/policy/RULESET_CANONICAL.md` (branch protection /
 push policy) and `docs/DEPLOYMENT.md` §15.2 (substrate mechanism
@@ -18,11 +28,10 @@ fleet monitoring.
 
 ## Marker convention for integration tests (TD-X48)
 
-The substrate's `test` job invokes pytest with marker filter
-`-m "not integration"` by default. The intent is to keep PR-time signal
-**fast, portable, and reproducible** — the substrate workflow runs on
-GitHub-hosted Linux runners with no service containers (no Postgres, no
-Redis, no S3 mock, no outbound network expectations beyond pip / PyPI).
+The Forge native test command and manual Sandbox backup workflow invoke pytest
+with marker filter `-m "not integration"` by default. The intent is to keep
+PR-time signal **fast, portable, and reproducible** without assuming production
+service credentials or external dependencies are present in the test process.
 
 ### Rule
 

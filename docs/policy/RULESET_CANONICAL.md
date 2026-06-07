@@ -133,12 +133,9 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": true,
         "required_status_checks": [
-          { "context": "lint" },
-          { "context": "typecheck" },
-          { "context": "test" },
           { "context": "secret-scan" },
           { "context": "base-staleness" },
-          { "context": "ci-pass" }
+          { "context": "forge/native-ci-shadow" }
         ]
       }
     }
@@ -147,11 +144,23 @@ The following GitHub Rulesets API payload is the canonical shape. Tools that app
 }
 ```
 
-The required-checks list is the **typical** JARVIS substrate matrix; per-repo overrides are allowed where a check does not exist. For repos whose substrate adoption is still pending (forge, financial, family as of 2026-05-05), apply the same payload with the `required_status_checks` rule **omitted entirely**, and add it back when their CI lands.
+The required-checks list is the **native-gated** JARVIS matrix. `secret-scan`
+and `base-staleness` stay on GitHub-hosted Actions because they are cheap and
+benefit from GitHub PR context. `forge/native-ci-shadow` is posted by Forge
+native CI on Sandbox and owns trusted lint/typecheck/test/build work.
+
+Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` after a repo is
+promoted to Forge native CI. For repos whose native adoption is still pending,
+either keep their current repo-local status policy or apply this payload with
+the `required_status_checks` rule omitted until `forge/native-ci-shadow` has a
+green sample PR.
 
 `do_not_enforce_on_create: true` is **not optional** when `required_status_checks` is present. It permits the ruleset itself to be (re)applied without spuriously blocking on a branch state that pre-existed; it does not weaken merge-time enforcement.
 
-The load-bearing parts of this spec are: (a) `pull_request`, (b) `non_fast_forward`, (c) `required_linear_history`, (d) presence of `required_status_checks` once substrate is live. Anything else is tunable per-repo.
+The load-bearing parts of this spec are: (a) `pull_request`, (b)
+`non_fast_forward`, (c) `required_linear_history`, (d) presence of
+`required_status_checks` once Forge native CI is active. Anything else is
+tunable per-repo.
 
 ---
 

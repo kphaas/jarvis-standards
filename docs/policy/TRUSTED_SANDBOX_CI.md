@@ -1,21 +1,26 @@
 # Trusted Sandbox CI
 
-Trusted Sandbox CI is the private-repo self-hosted runner pattern for JARVIS
-pull requests. It moves no-secret compute from GitHub-hosted runners onto the
-Sandbox Mac while keeping GitHub as the PR status and branch-protection control
-plane.
+Trusted Sandbox CI is the private-repo self-hosted compute pattern for JARVIS
+pull requests. Forge native CI is the automatic gate: it moves no-secret compute
+from GitHub-hosted runners onto the Sandbox Mac while keeping GitHub as the PR
+status and branch-protection control plane via `forge/native-ci-shadow`.
+
+The repo-local `.github/workflows/trusted-sandbox-ci.yml` workflow is now a
+manual backup only. Operators can dispatch it when Forge native CI is degraded,
+but it must not run automatically on every PR because that duplicates the native
+gate.
 
 ## Ownership
 
 | Surface | Owner | Source |
 |---|---|---|
-| Workflow policy and template | `jarvis-standards` | `scripts/_templates/workflows/trusted-sandbox-ci.yml` |
+| Manual backup workflow policy and template | `jarvis-standards` | `scripts/_templates/workflows/trusted-sandbox-ci.yml` |
 | Runner registry, setup script, doctor, monitor | `jarvis-forge` | Forge runner fleet config and runbooks |
 | Repo-specific workflow copy | Consuming repo | `.github/workflows/trusted-sandbox-ci.yml` |
 
 ## Trust Boundary
 
-The trusted workflow is only for private repositories and trusted same-repo PR
+Forge native CI is only for private repositories and trusted same-repo PR
 branches. Public repositories and fork PRs stay on GitHub-hosted runners unless
 a separate trust model is approved.
 
@@ -26,8 +31,9 @@ Required gates:
 - PR branch must start with `claude-code/` or `codex/`.
 - Jobs run with `contents: read` only.
 - No secrets are passed to the self-hosted job.
-- The workflow uses source path filters so docs-only PRs do not run the full
-  trusted suite.
+- The Forge watcher and repo config decide which PRs and paths run native
+  checks. Do not trust dependency-update branches on Sandbox without a separate
+  policy decision.
 
 ## Rendering
 
@@ -49,15 +55,19 @@ hand or use Forge tooling to render the placeholders.
    `sandbox,<repo>,trusted,macos-arm64`.
 2. Set `JARVIS_ENABLE_SANDBOX_RUNNER=true` in the target repo's Actions
    variables.
-3. Add `.github/workflows/trusted-sandbox-ci.yml` on a `claude-code/*` or
-   `codex/*` branch.
-4. Open a PR and verify the trusted workflow runs on the Sandbox runner.
-5. Add the repo to Forge's runner fleet registry as `active` only after the
-   workflow is merged and the runner doctor passes.
+3. Add the repo to Forge native CI config in `jarvis-forge` as `onboarding`.
+4. Open a trusted `claude-code/*` or `codex/*` sample PR and verify
+   `forge/native-ci-shadow` posts a green status.
+5. Promote the repo to `active` in Forge native CI and require exactly
+   `secret-scan`, `base-staleness`, and `forge/native-ci-shadow` in branch
+   protection/rulesets.
+6. Keep `.github/workflows/trusted-sandbox-ci.yml` as a manual
+   `workflow_dispatch` backup.
 
 ## Cost Model
 
-Self-hosted runner jobs do not consume GitHub-hosted Actions minutes. Keep small
-checks combined in this workflow, use `concurrency.cancel-in-progress`, and keep
-GitHub-hosted jobs for checks that must remain independent of Sandbox health
-such as fleet monitoring or base-staleness checks.
+Forge native CI and self-hosted runner jobs do not consume GitHub-hosted Actions
+minutes. Keep GitHub-hosted jobs for cheap checks that should remain independent
+of Sandbox health, especially `secret-scan` and `base-staleness`. Do not run
+duplicate hosted `lint`, `typecheck`, `test`, or `ci-pass` jobs after a repo is
+native-gated.

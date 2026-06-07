@@ -10,8 +10,8 @@ rather than the local-commit side handled by `_templates/hooks/`.
 | File | TD | Purpose |
 |---|---|---|
 | `pr-base-staleness.yml` | TD-X23 | Check the PR's merge-base age vs the target branch. Posts an idempotent comment when the base is ≥14 days old; fails the required check when it's ≥30 days. Catches PRs that have rotted (silent merge conflicts, lost context). |
-| `ci.yml` | TD-X29 + TD-X32 + TD-X35 + TD-X48 + TD-X48 v2 | Uniform per-repo CI: lint (ruff), typecheck (mypy), test (pytest), secret-scan (detect-secrets baseline audit). Each Python job gracefully skips when its config is absent. The aggregator job `ci-pass` is the single required-status-check name configured in branch protection. **Workspace-aware sync (TD-X32):** test + typecheck detect `[tool.uv.workspace]` in the root `pyproject.toml` and add `--all-packages` to `uv sync` so workspace siblings install. **Dev-group-aware sync (TD-X35):** the same two jobs detect `[dependency-groups]` (PEP 735) or `[tool.uv.dev-dependencies]` (legacy uv) and add `--group dev` only when present; repos that put pytest in `[project.optional-dependencies]` (e.g. financial) skip the flag and no longer fail with `Group `dev` is not defined`. Repos with no root `pyproject.toml` skip test + typecheck entirely. Lint is unaffected — `uv tool run ruff` operates on the filesystem and does not need a synced env. **Integration-marker filter (TD-X48):** test job invokes `uv run pytest -m "not integration"` by default — tests requiring external services (DB, network) MUST register `@pytest.mark.integration` and are skipped from default CI. Override per-repo via the `JARVIS_PYTEST_MARKERS` repo-level variable (Settings → Variables). **Exit-5 handling (TD-X48 v2):** when the marker filter excludes every test in a 100%-integration repo, pytest exits 5; substrate captures rc, treats 5 as success with a `::notice::` annotation. See `docs/policy/CI_CONVENTIONS.md`. |
-| `trusted-sandbox-ci.yml` | Sandbox runner rollout | Private-repo, no-secret PR checks for repo-scoped self-hosted runners on Sandbox. The template gates execution on `JARVIS_ENABLE_SANDBOX_RUNNER == true`, refuses fork PRs, limits PR execution to `claude-code/*` and `codex/*` branches, uses common source path filters to skip docs-only work, and renders repo-specific labels through `@@RUNNER_REPO_LABEL@@`. Forge owns runner registration, health checks, and fleet monitoring. See `docs/policy/TRUSTED_SANDBOX_CI.md`. |
+| `ci.yml` | Native-gated CI rollout | GitHub-hosted guardrails only: `secret-scan` runs against the detect-secrets baseline on PRs and pushes to `main`. Expensive trusted checks moved to Forge native CI on Sandbox and report as `forge/native-ci-shadow`. |
+| `trusted-sandbox-ci.yml` | Sandbox runner backup | Manual `workflow_dispatch` backup for repo-owned no-secret checks on the trusted Sandbox runner. It remains available for operator fallback, but does not run automatically on PRs because Forge native CI owns the automatic trusted gate. See `docs/policy/TRUSTED_SANDBOX_CI.md`. |
 
 ## Propagation
 
@@ -24,6 +24,17 @@ copy workflow files by hand, or Forge renders workflow templates while the
 `jarvis-standards` itself dogfoods the workflow at
 `.github/workflows/pr-base-staleness.yml`. Any PR opened against
 `jarvis-standards`'s `main` exercises the check.
+
+For repos promoted to Forge native CI, branch protection and repository
+rulesets should require exactly:
+
+- `secret-scan`
+- `base-staleness`
+- `forge/native-ci-shadow`
+
+Do not require hosted `lint`, `typecheck`, `test`, or `ci-pass` on native-gated
+repos; those checks are duplicate paid GitHub-hosted work once Forge native CI is
+active.
 
 ## Adding a new workflow
 
