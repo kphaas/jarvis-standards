@@ -1,40 +1,16 @@
 name: trusted-sandbox-ci
 
 # Canonical source: jarvis-standards/scripts/_templates/workflows/trusted-sandbox-ci.yml.
-# Runner fleet ownership and health monitoring live in jarvis-forge.
+# Manual backup for repo-owned no-secret checks on the trusted Sandbox runner.
+# Forge native CI is the required automatic gate and posts
+# `forge/native-ci-shadow`; keep this workflow manual to avoid duplicate PR
+# work while retaining an operator-controlled fallback.
 #
 # Required render variables:
 # - @@RUNNER_REPO_LABEL@@: repo-specific runner label, for example jarvis-forge.
 # - @@JS_PROJECT_DIRS@@: space-separated package.json directories, or empty to auto-detect common dirs.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main]
-    paths:
-      - ".github/workflows/trusted-sandbox-ci.yml"
-      - "api/**"
-      - "app/**"
-      - "apps/**"
-      - "brain/**"
-      - "config/**"
-      - "gateway/**"
-      - "migrations/**"
-      - "packages/**"
-      - "pipeline/**"
-      - "server/**"
-      - "services/**"
-      - "src/**"
-      - "tests/**"
-      - "ui/**"
-      - "web/**"
-      - "package.json"
-      - "package-lock.json"
-      - "pnpm-lock.yaml"
-      - "yarn.lock"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "requirements*.txt"
   workflow_dispatch:
 
 permissions:
@@ -49,16 +25,7 @@ jobs:
     name: no-secrets-suite
     if: >-
       vars.JARVIS_ENABLE_SANDBOX_RUNNER == 'true' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          (
-            startsWith(github.head_ref, 'claude-code/') ||
-            startsWith(github.head_ref, 'codex/')
-          )
-        )
-      )
+      github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS, ARM64, sandbox, "@@RUNNER_REPO_LABEL@@", trusted]
     timeout-minutes: 30
     env:
