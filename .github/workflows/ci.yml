@@ -1,59 +1,10 @@
-# JARVIS uniform CI workflow — TD-X29 (TD-X32 workspace-aware sync;
-# TD-X35 dev-group-aware sync; TD-X48 integration-marker filter;
-# TD-X48 v2 exit-5 handling).
+# JARVIS GitHub-hosted guardrail workflow.
 #
 # Source of truth: jarvis-standards/scripts/_templates/workflows/ci.yml.
-# Phase 3 propagates this into each consuming repo's .github/workflows/.
 #
-# Jobs run in parallel against PRs and pushes to main. Each Python job
-# (lint / typecheck / test) gracefully skips when the repo doesn't have
-# the corresponding configuration; secret-scan is unconditional.
-#
-# `ci-pass` is the single required-status-check name configured in branch
-# protection — it depends on every other job, so a skip in any one of
-# them propagates as a green required check, while a real failure
-# anywhere blocks the merge.
-#
-# Step ordering matters: the gate step that decides whether the job's
-# real work runs MUST come before the Python / uv setup, because
-# `astral-sh/setup-uv@v3` with `cache-dependency-glob` errors out if
-# nothing matches the glob — so a no-pyproject-toml repo would fail
-# during setup before our gate had a chance to skip it.
-#
-# Workspace + dev-group awareness (TD-X32 + TD-X35):
-# JARVIS repos use `uv` workspaces. The naive `uv sync --all-extras` only
-# resolves the root package — workspace siblings (e.g. jarvis-financial's
-# packages/core, packages/risk, packages/contracts; jarvis-alpha's brain/
-# + gateway/) stay un-synced and downstream `import` calls fail with
-# `ModuleNotFoundError`. Phase 3 propagation surfaced this on financial,
-# alpha, family. test + typecheck jobs detect `[tool.uv.workspace]` in
-# the root `pyproject.toml` and add `--all-packages` when present.
-# `--group dev` (TD-X35) is added only when `pyproject.toml` declares
-# either `[dependency-groups]` (PEP 735) or `[tool.uv.dev-dependencies]`
-# (legacy uv); without the guard, repos that put pytest in
-# `[project.optional-dependencies]` (e.g. financial) fail with `Group
-# `dev` is not defined`. Repos with no root `pyproject.toml` skip test +
-# typecheck entirely (covers the alpha-without-workspace-root case until
-# alpha adopts a workspace root). The lint job is unaffected because `uv
-# tool run ruff` operates on the filesystem and doesn't need a synced env.
-#
-# Integration-test filter (TD-X48): the substrate's pytest invocation
-# defaults to `-m "not integration"`. Tests that require external
-# infrastructure (Postgres, Redis, network, file system fixtures, etc.)
-# MUST be marked `@pytest.mark.integration` and will be skipped in default
-# CI. This keeps PR-time signal fast and substrate-portable; integration
-# suites are repo-owned and run via a separate workflow (TD-X50, future).
-# Repos can override the filter by setting the repo-level variable
-# `JARVIS_PYTEST_MARKERS` in repo settings (e.g. `""` to run everything,
-# or `"not integration and not slow"` to add additional exclusions).
-# See docs/policy/CI_CONVENTIONS.md for the full convention.
-#
-# Exit-5 handling (TD-X48 v2): when the marker filter excludes every
-# collected test, pytest exits with code 5 ("no tests collected"). For
-# repos whose suites are 100% integration-marked (e.g. family), this is
-# the expected state under the substrate default — not a failure. The
-# test step captures pytest's exit code, treats 5 as success with a
-# ::notice:: annotation, and propagates every other code unchanged.
+# Expensive trusted checks belong to Forge native CI on Sandbox and report as
+# `forge/native-ci-shadow`. Keep GitHub-hosted Actions focused on cheap,
+# branch-safe guardrails that need GitHub PR context or full git history.
 
 name: ci
 
@@ -66,194 +17,11 @@ on:
 permissions:
   contents: read
 
-# Concurrency: cancel in-progress PR runs on the same branch when a new
-# push lands; never cancel main pushes.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Skip if no Python config
-        id: gate
-        run: |
-          if [ ! -f pyproject.toml ] && [ ! -f setup.cfg ] && [ ! -f setup.py ]; then
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "No Python project config found — skipping ruff."
-          else
-            echo "skip=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Set up Python
-        if: steps.gate.outputs.skip == 'false'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        if: steps.gate.outputs.skip == 'false'
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
-      - name: ruff check
-        if: steps.gate.outputs.skip == 'false'
-        run: uv tool run ruff check .
-
-      - name: ruff format --check
-        if: steps.gate.outputs.skip == 'false'
-        run: uv tool run ruff format --check .
-
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Skip if mypy not configured
-        id: gate
-        run: |
-          if [ ! -f pyproject.toml ] || ! grep -q '\[tool\.mypy\]' pyproject.toml; then
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "[tool.mypy] not present — skipping mypy."
-          else
-            echo "skip=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Set up Python
-        if: steps.gate.outputs.skip == 'false'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        if: steps.gate.outputs.skip == 'false'
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
-      - name: Sync dependencies (workspace + dev-group aware, TD-X32 + TD-X35)
-        if: steps.gate.outputs.skip == 'false'
-        run: |
-          # Workspace detection (TD-X32): presence of [tool.uv.workspace]
-          # in the root pyproject.toml indicates a uv workspace; in that
-          # case --all-packages is needed so workspace siblings get
-          # synced too. Without it, sibling imports (e.g.
-          # jarvis_contracts) fail at type-check / test time.
-          if grep -q '^\[tool\.uv\.workspace\]' pyproject.toml; then
-            WORKSPACE_FLAG="--all-packages"
-          else
-            WORKSPACE_FLAG=""
-          fi
-          # Dev-group detection (TD-X35): include --group dev only if
-          # pyproject.toml declares either [dependency-groups] (PEP 735)
-          # or [tool.uv.dev-dependencies] (legacy uv form, auto-translated
-          # into a virtual `dev` group). uv errors otherwise with
-          # `Group `dev` is not defined`.
-          if grep -qE '^\[dependency-groups\]|^\[tool\.uv\.dev-dependencies\]' pyproject.toml; then
-            DEV_FLAG="--group dev"
-          else
-            DEV_FLAG=""
-          fi
-          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
-          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
-
-      - name: mypy
-        if: steps.gate.outputs.skip == 'false'
-        run: uv run mypy .
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Skip if no root pyproject.toml or no tests/
-        id: gate
-        run: |
-          # TD-X32: also gate on root pyproject.toml. Without it `uv sync`
-          # has nothing to sync against, and the alpha case (multi-package
-          # repo without a workspace root) used to blow up here.
-          if [ ! -f pyproject.toml ] || [ ! -d tests ]; then
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "No root pyproject.toml or no tests/ directory — skipping pytest."
-          else
-            echo "skip=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Set up Python
-        if: steps.gate.outputs.skip == 'false'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        if: steps.gate.outputs.skip == 'false'
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-
-      - name: Sync dependencies (workspace + dev-group aware, TD-X32 + TD-X35)
-        if: steps.gate.outputs.skip == 'false'
-        run: |
-          # Workspace detection (TD-X32): see the typecheck job for the
-          # full rationale. --all-packages on workspace repos so siblings
-          # sync (covers financial's jarvis_contracts, jarvis_core.* etc).
-          if grep -q '^\[tool\.uv\.workspace\]' pyproject.toml; then
-            WORKSPACE_FLAG="--all-packages"
-          else
-            WORKSPACE_FLAG=""
-          fi
-          # Dev-group detection (TD-X35): include --group dev only if
-          # pyproject.toml declares either [dependency-groups] (PEP 735)
-          # or [tool.uv.dev-dependencies] (legacy uv form). Without this
-          # guard, repos that put pytest in [project.optional-dependencies]
-          # (e.g. financial) fail with `Group `dev` is not defined`. With
-          # the guard present, PEP-735-using repos still install pytest
-          # via the dev group during sync (covers family's
-          # pytest-not-found case).
-          if grep -qE '^\[dependency-groups\]|^\[tool\.uv\.dev-dependencies\]' pyproject.toml; then
-            DEV_FLAG="--group dev"
-          else
-            DEV_FLAG=""
-          fi
-          echo "sync flags → workspace='${WORKSPACE_FLAG}' dev='${DEV_FLAG}'"
-          uv sync ${WORKSPACE_FLAG} --all-extras ${DEV_FLAG}
-
-      - name: pytest (default skips integration tests; override via vars.JARVIS_PYTEST_MARKERS)
-        if: steps.gate.outputs.skip == 'false'
-        env:
-          PYTEST_MARKERS: ${{ vars.JARVIS_PYTEST_MARKERS != '' && vars.JARVIS_PYTEST_MARKERS || 'not integration' }}
-        run: |
-          echo "pytest marker filter: ${PYTEST_MARKERS}"
-          set +e
-          uv run pytest -m "${PYTEST_MARKERS}"
-          rc=$?
-          set -e
-          # pytest exit 5 = "no tests collected" — for substrate-default
-          # repos whose tests are 100% integration-marked (TD-X48), this
-          # is the expected state, not a failure. Treat as success and
-          # surface a notice annotation so the run reports it visibly.
-          if [ "$rc" -eq 5 ]; then
-            echo "::notice::No tests matched marker filter '${PYTEST_MARKERS}' — treating pytest exit 5 (no tests collected) as success per TD-X48 v2."
-            exit 0
-          fi
-          exit "$rc"
-
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
@@ -266,15 +34,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install detect-secrets
-        run: pip install --quiet 'detect-secrets==1.5.0'
+        run: pip install --quiet "detect-secrets==1.5.0"
 
       - name: Scan against baseline
         run: |
           if [ ! -f .secrets.baseline ]; then
-            echo "::warning::No .secrets.baseline present — running scan in audit-only mode (will not fail this build)."
+            echo "::warning::No .secrets.baseline present; running scan in audit-only mode."
             detect-secrets scan > /tmp/scan.json || true
             python - <<'PY'
           import json
@@ -285,31 +53,5 @@ jobs:
           PY
             exit 0
           fi
-          # With a baseline present: fail if scan reports anything not
-          # already in the baseline. detect-secrets exits non-zero when
-          # the audit finds new secrets.
-          detect-secrets scan --baseline .secrets.baseline
 
-  ci-pass:
-    name: ci-pass
-    needs: [lint, typecheck, test, secret-scan]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Aggregate results
-        env:
-          LINT:        ${{ needs.lint.result }}
-          TYPECHECK:   ${{ needs.typecheck.result }}
-          TEST:        ${{ needs.test.result }}
-          SECRET_SCAN: ${{ needs.secret-scan.result }}
-        run: |
-          set -e
-          fail=0
-          for n in LINT TYPECHECK TEST SECRET_SCAN; do
-            v="${!n}"
-            case "${v}" in
-              success|skipped) echo "${n}: ${v}" ;;
-              *)               echo "::error::${n}: ${v}"; fail=1 ;;
-            esac
-          done
-          exit "${fail}"
+          detect-secrets scan --baseline .secrets.baseline
