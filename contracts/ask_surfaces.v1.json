@@ -1,0 +1,112 @@
+{
+  "$schema": "https://standards.jarvis.local/contracts/ask-surfaces.v1.json",
+  "schema_version": 1,
+  "contract_id": "jarvis.ask-surfaces",
+  "status": "accepted",
+  "last_reviewed": "2026-06-18",
+  "principles": [
+    "Do not create a third Ask implementation in Alpha.",
+    "Keep operator Ask and family-safe Ask separate because their users, safety rules, and evidence contracts differ.",
+    "Move shared behavior into this contract before copying logic between repos.",
+    "Preserve the working Helm and Family paths until a deliberate migration replaces them."
+  ],
+  "surfaces": [
+    {
+      "id": "operator-ask",
+      "display_name": "Operator Ask",
+      "owner_repo": "jarvis-helm",
+      "audience": ["operator", "ken"],
+      "route": "/ask",
+      "frontend_entrypoints": [
+        "src/ask/AskWorkspace.tsx",
+        "src/ask/alphaAskClient.ts"
+      ],
+      "backend_repo": "jarvis-alpha",
+      "backend_endpoints": [
+        "/v1/chat/completions",
+        "/v1/threads",
+        "/v1/threads/{thread_id}/messages",
+        "/v1/threads/{thread_id}",
+        "/v1/threads/{thread_id}/escalate",
+        "/v1/memory/summary",
+        "/v1/memory/semantic",
+        "/v1/memory/forget"
+      ],
+      "preserve_capabilities": [
+        "streaming SSE chat completion",
+        "thread list, history, rename, delete, and escalation",
+        "model routing for auto, local, Claude, Perplexity, Gemini, and council",
+        "internet modes none, web_search, and deep_research",
+        "Beacon evidence metadata, source quality, citations, and raw web isolation",
+        "deep research report metadata and report export",
+        "semantic and working memory review/save/forget",
+        "operator voice input and AT-0 avatar response state"
+      ],
+      "must_not_absorb": [
+        "child safety policy",
+        "family member role routing",
+        "family document source filtering"
+      ]
+    },
+    {
+      "id": "family-safe-ask",
+      "display_name": "Family Safe Ask",
+      "owner_repo": "jarvis-family",
+      "audience": ["parent", "child"],
+      "route": "/ask",
+      "frontend_entrypoints": [
+        "ui/src/pages/Ask.tsx",
+        "ui/src/components/ask/AskChat.tsx",
+        "ui/src/components/ask/AskSourceList.tsx"
+      ],
+      "backend_repo": "jarvis-family",
+      "backend_endpoints": [
+        "/v1/ask",
+        "/v1/ask/stream"
+      ],
+      "preserve_capabilities": [
+        "role-aware parent and child UI",
+        "input safety assessment before model calls",
+        "child answer filtering after model calls",
+        "parent caution levels for medical, legal, and financial prompts",
+        "parent-only family document source retrieval",
+        "child-safe context with no parent document excerpts",
+        "streaming SSE answers with non-stream fallback",
+        "family voice input and optional voice reply"
+      ],
+      "must_not_absorb": [
+        "operator model routing",
+        "Beacon deep research evidence",
+        "Alpha thread management"
+      ]
+    }
+  ],
+  "non_owner_repos": [
+    {
+      "repo": "jarvis-alpha",
+      "allowed_roles": [
+        "backend API provider for operator Ask",
+        "approval, memory, Beacon, and audit provider",
+        "status or handoff link to Helm"
+      ],
+      "forbidden_roles": [
+        "standalone Ask frontend",
+        "third chat composer",
+        "duplicated operator model controls",
+        "duplicated Family child-safe Ask UI"
+      ]
+    },
+    {
+      "repo": "jarvis-data-sources",
+      "allowed_roles": [
+        "data API registry used by Beacon or domain modules"
+      ],
+      "forbidden_roles": [
+        "Ask runtime",
+        "Ask skill",
+        "chat UI"
+      ]
+    }
+  ],
+  "migration_rule": "Any change that moves Ask behavior across repo boundaries must update this contract and preserve both surface test suites before merge."
+}
