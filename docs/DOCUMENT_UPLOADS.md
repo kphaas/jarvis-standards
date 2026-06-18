@@ -14,7 +14,7 @@ Domain repos should not create durable local document stores, Sandbox-only uploa
 2. The domain app calls Alpha `POST /v1/vault/upload`.
 3. Alpha writes the file into vault storage and creates `vault_documents` plus `vault_pipeline`.
 4. The domain app calls Alpha `POST /v1/vault/pipeline/{pipeline_id}/confirm`.
-5. Alpha stages the file on JarvisSecure and mirrors to Unraid when mounted and writable.
+5. Alpha stages the file on JarvisSecure and mirrors mapped classifications to Unraid through the Brain -> Unraid SSH archive path.
 6. The domain app stores Alpha metadata and domain-specific extraction results.
 7. The domain app calls Alpha ingestion when AT-0/LLM search or recall should know the document contents.
 
@@ -54,6 +54,14 @@ The current Alpha text ingestion path does not create a Markdown file artifact. 
 - Fail closed if Alpha upload, archive, or required ingestion is unavailable.
 - Do not log raw document text, secrets, or sensitive extracted values.
 - Add a local repo invariant in `AGENTS.md` when a repo supports document uploads.
+
+## Unraid Transport
+
+Document archiving from Alpha to Unraid uses the Brain -> Unraid SSH/SCP path,
+not a domain-local Unraid mount and not the older SMB mount helper. Alpha may
+use document-specific `ALPHA_UNRAID_SSH_*` settings when present; otherwise it
+falls back to the existing Brain backup SSH route (`BACKUP_SSH_*`) that writes
+to Unraid. The default long-term document root is `/mnt/user/Documents`.
 
 ## Known Alpha Endpoints
 
