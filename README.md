@@ -8,6 +8,7 @@ This repo is the single source of truth for cross-repo conventions. Every JARVIS
 
 | Document | Purpose |
 |---|---|
+| [docs/DOCUMENT_UPLOADS.md](docs/DOCUMENT_UPLOADS.md) | Standard document upload path through Alpha vault, staging, Unraid archive, and ingestion |
 | [docs/LOGGING.md](docs/LOGGING.md) | Structured logging pattern using `get_logger` |
 
 ## Planned Standards
