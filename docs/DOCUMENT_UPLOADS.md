@@ -35,9 +35,16 @@ Tax returns and financial planning documents use `30_FINANCE`.
 
 Upload plus confirm archives the binary file. It does not, by itself, make the document content available to AT-0.
 
-For PDF recall, call Alpha `POST /v1/vault/ingest/pdf` with the same bytes and `pipeline_id`. The current implementation extracts text with `pdfplumber`, chunks it into `vault_chunks`, and attempts embeddings with Ollama `all-minilm`.
+For recall, call the Alpha ingestion endpoint that matches the uploaded file type with the same bytes and `pipeline_id`:
 
-The current Alpha PDF ingestion path does not create a Markdown file artifact. If a domain needs a canonical Markdown digest for review or audit, the domain should create an explicit digest artifact while keeping the original binary in Alpha vault.
+- PDF: `POST /v1/vault/ingest/pdf`
+- DOCX: `POST /v1/vault/ingest/docx`
+- Plain text: `POST /v1/vault/ingest/text`
+- Excel: `POST /v1/vault/ingest/excel`
+
+PDF, DOCX, and plain-text ingestion extract text, chunk it into `vault_chunks`, and attempt embeddings with Ollama `all-minilm`. Excel ingestion loads workbook rows into Alpha-owned ingest tables.
+
+The current Alpha text ingestion path does not create a Markdown file artifact. If a domain needs a canonical Markdown digest for review or audit, the domain should create an explicit digest artifact while keeping the original binary in Alpha vault.
 
 ## Domain Repo Requirements
 
@@ -53,6 +60,8 @@ The current Alpha PDF ingestion path does not create a Markdown file artifact. I
 - `POST /v1/vault/upload`
 - `POST /v1/vault/pipeline/{pipeline_id}/confirm`
 - `POST /v1/vault/ingest/pdf`
+- `POST /v1/vault/ingest/docx`
+- `POST /v1/vault/ingest/text`
 - `POST /v1/vault/ingest/excel`
 
 ## Related Decisions
