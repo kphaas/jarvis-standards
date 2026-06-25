@@ -48,6 +48,7 @@ Skip an ADR for: code style, variable naming, which Python lib to use for one ta
 | [0022](./ADR-0022-smithy-agent-spec-driven-authoring-orchestration.md) | Smithy Agent: Spec-Driven Project Authoring & Orchestration | Proposed | 2026-06-02 |
 | [0023](./ADR-0023-alpha-vault-document-upload-standard.md) | Standardize Document Uploads on Alpha Vault | Accepted | 2026-06-18 |
 | [0024](./ADR-0024-ask-source-of-truth-boundaries.md) | Establish Ask Source-of-Truth Boundaries | Accepted | 2026-06-18 |
+| [0025](./ADR-0025-at0-auto-update-agent-authority-model.md) | Establish AT-0 Auto-Update Agent Authority Model | Proposed | 2026-06-25 |
 
 ## Template
 
